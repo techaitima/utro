@@ -1,0 +1,40 @@
+[Unit]
+Description=Telegram Utro Bot with AI Content Generation
+Documentation=https://github.com/your-repo/utro
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/utro
+
+# Python virtual environment
+Environment="PATH=/root/utro/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Start command
+ExecStart=/root/utro/venv/bin/python bot.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=utro-bot
+
+# Security hardening (optional, comment if issues)
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
