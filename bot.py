@@ -17,12 +17,14 @@ from datetime import datetime
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.types import ErrorEvent
 
 from config import config
-from handlers import admin_router, common_router
+from handlers import admin_router, common_router, callbacks_router
 from handlers.admin import set_bot_start_time, update_last_post_status
 from services.scheduler import start_scheduler, stop_scheduler
 from services.post_service import post_to_channel
+from services.user_service import ensure_data_file_exists
 
 # Configure logging
 logging.basicConfig(
@@ -72,18 +74,22 @@ async def scheduled_morning_post() -> None:
 async def on_startup(bot: Bot) -> None:
     """
     Called when bot starts.
-    Initializes scheduler and logs startup info.
+    Initializes scheduler, user data file, and logs startup info.
     """
     global bot_instance
     bot_instance = bot
     
+    # Ensure user data file exists
+    ensure_data_file_exists()
+    
     logger.info("=" * 50)
-    logger.info("Utro Bot starting...")
-    logger.info(f"Channel ID: {config.channel_id}")
-    logger.info(f"Timezone: {config.timezone}")
-    logger.info(f"Morning post time: {config.morning_post_time}")
-    logger.info(f"Admin users: {len(config.admin_user_ids)}")
-    logger.info(f"Holidays API: {'Configured' if config.holidays_api_key else 'Not configured'}")
+    logger.info("🤖 Utro Bot starting...")
+    logger.info(f"📅 Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"📢 Channel ID: {config.channel_id}")
+    logger.info(f"🕐 Timezone: {config.timezone}")
+    logger.info(f"⏰ Morning post time: {config.morning_post_time}")
+    logger.info(f"👤 Admin users: {len(config.admin_user_ids)}")
+    logger.info(f"🎉 Holidays API: {'✅ Configured' if config.holidays_api_key else '❌ Not configured'}")
     logger.info("=" * 50)
     
     # Set bot start time for uptime tracking
@@ -91,13 +97,13 @@ async def on_startup(bot: Bot) -> None:
     
     # Start the scheduler
     start_scheduler(scheduled_morning_post)
-    logger.info("Scheduler started successfully")
+    logger.info("✅ Scheduler started successfully")
     
     # Get bot info
     try:
         bot_info = await bot.get_me()
-        logger.info(f"Bot username: @{bot_info.username}")
-        logger.info(f"Bot ID: {bot_info.id}")
+        logger.info(f"🤖 Bot username: @{bot_info.username}")
+        logger.info(f"🆔 Bot ID: {bot_info.id}")
     except Exception as e:
         logger.warning(f"Could not get bot info: {e}")
 
@@ -107,17 +113,20 @@ async def on_shutdown(bot: Bot) -> None:
     Called when bot shuts down.
     Stops scheduler and cleans up resources.
     """
-    logger.info("Shutting down bot...")
+    logger.info("=" * 50)
+    logger.info("🛑 Shutting down Utro Bot...")
+    logger.info(f"📅 Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     # Stop the scheduler
     stop_scheduler()
-    logger.info("Scheduler stopped")
+    logger.info("✅ Scheduler stopped")
     
     # Close bot session
     await bot.session.close()
-    logger.info("Bot session closed")
+    logger.info("✅ Bot session closed")
     
-    logger.info("Bot shutdown complete")
+    logger.info("🛑 Bot shutdown complete")
+    logger.info("=" * 50)
 
 
 def handle_signal(sig, frame):
@@ -129,7 +138,7 @@ def handle_signal(sig, frame):
 async def main() -> None:
     """
     Main function - entry point for the bot.
-    Sets up bot, dispatcher, handlers, and starts polling.
+    Sets up bot, dispatcher, handlers, error handler, and starts polling.
     """
     # Validate configuration
     logger.info("Validating configuration...")
@@ -143,10 +152,41 @@ async def main() -> None:
     # Create dispatcher
     dp = Dispatcher()
     
-    # Register routers
+    # Register global error handler
+    @dp.error()
+    async def error_handler(event: ErrorEvent) -> bool:
+        """
+        Global error handler for all unhandled exceptions.
+        Logs the error and prevents bot crash.
+        """
+        logger.error(
+            f"Error handling update: {event.exception}",
+            exc_info=event.exception
+        )
+        
+        # Try to notify user about the error
+        try:
+            if event.update.message:
+                await event.update.message.answer(
+                    "⚠️ Произошла ошибка. Администратор уведомлен.\n\n"
+                    "Попробуйте позже или используйте /start"
+                )
+            elif event.update.callback_query:
+                await event.update.callback_query.answer(
+                    "⚠️ Произошла ошибка",
+                    show_alert=True
+                )
+        except Exception as notify_error:
+            logger.error(f"Could not notify user about error: {notify_error}")
+        
+        # Return True to prevent the error from propagating
+        return True
+    
+    # Register routers (order matters - callbacks before common for catch-all)
     dp.include_router(admin_router)
+    dp.include_router(callbacks_router)
     dp.include_router(common_router)
-    logger.info("Routers registered: admin, common")
+    logger.info("✅ Routers registered: admin, callbacks, common")
     
     # Register startup and shutdown hooks
     dp.startup.register(on_startup)
