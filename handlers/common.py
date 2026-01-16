@@ -269,7 +269,7 @@ async def btn_settings(message: Message) -> None:
             parse_mode="HTML",
             reply_markup=settings_keyboard()
         )
-        logger.info(f"{mask_user_id(user_id, config.debug_mode)} opened settings"))
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} opened settings")
         
     except Exception as e:
         logger.error(f"Error in btn_settings: {e}", exc_info=True)

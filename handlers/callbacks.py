@@ -382,7 +382,7 @@ async def cb_my_stats(callback: CallbackQuery) -> None:
             reply_markup=back_keyboard()
         )
         
-        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} viewed their stats"))
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} viewed their stats")
         
     except Exception as e:
         logger.error(f"Error in cb_my_stats: {e}", exc_info=True)
@@ -619,7 +619,7 @@ async def cb_cancel_preview(callback: CallbackQuery) -> None:
             parse_mode="HTML"
         )
         
-        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} cancelled preview"))
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} cancelled preview")
         
     except Exception as e:
         logger.error(f"Error in cb_cancel_preview: {e}", exc_info=True)
