@@ -52,13 +52,19 @@ async def scheduled_morning_post() -> None:
     """
     Scheduled job function for morning posts.
     Called by APScheduler at configured time.
+    Posts DIRECTLY to channel without preview (scheduled posts).
     """
     global bot_instance
     
     logger.info("=== Starting scheduled morning post ===")
     
     try:
-        success = await post_to_channel(bot_instance, config.channel_id)
+        # preview_mode=False for scheduled posts - publish directly
+        success, _ = await post_to_channel(
+            bot=bot_instance, 
+            channel_id=config.channel_id,
+            preview_mode=False  # Direct publish for scheduler
+        )
         update_last_post_status(success=success)
         
         if success:

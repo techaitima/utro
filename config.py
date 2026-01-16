@@ -40,6 +40,9 @@ class Config:
     # Morning post time in HH:MM format
     morning_post_time: str = field(default_factory=lambda: os.getenv("MORNING_POST_TIME", "08:00"))
     
+    # Debug mode - if True, sensitive data won't be masked in logs
+    debug_mode: bool = field(default_factory=lambda: os.getenv("DEBUG_MODE", "false").lower() == "true")
+    
     def __post_init__(self):
         """Parse complex configuration values after initialization."""
         # Parse admin user IDs from comma-separated string

@@ -100,6 +100,37 @@ def confirm_post_keyboard() -> InlineKeyboardMarkup:
     return keyboard
 
 
+def preview_post_keyboard(post_id: str = "") -> InlineKeyboardMarkup:
+    """
+    Create keyboard for post preview with publish/cancel/regenerate buttons.
+    All text in Russian.
+    
+    Args:
+        post_id: Optional post identifier for callback data
+    """
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Опубликовать в канал", 
+                    callback_data=f"publish_post:{post_id}" if post_id else "publish_post"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Регенерировать", 
+                    callback_data=f"regenerate_post:{post_id}" if post_id else "regenerate_post"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отменить", 
+                    callback_data=f"cancel_preview:{post_id}" if post_id else "cancel_preview"
+                )
+            ]
+        ]
+    )
+    return keyboard
+
+
 def schedule_keyboard() -> InlineKeyboardMarkup:
     """Create schedule settings keyboard."""
     keyboard = InlineKeyboardMarkup(

@@ -522,6 +522,170 @@ async def cb_admin_test_holidays(callback: CallbackQuery) -> None:
 
 
 # ============================================
+# POST PREVIEW CALLBACKS
+# ============================================
+
+@router.callback_query(F.data.startswith("publish_post"))
+async def cb_publish_post(callback: CallbackQuery) -> None:
+    """Handle '✅ Опубликовать в канал' button - publish pending post."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer("📤 Публикую в канал...")
+        
+        # Extract post_id from callback data
+        parts = callback.data.split(":")
+        post_id = parts[1] if len(parts) > 1 else ""
+        
+        if not post_id:
+            await callback.message.edit_caption(
+                caption="❌ <b>Ошибка:</b> Пост не найден.\n\nПопробуйте сгенерировать новый.",
+                parse_mode="HTML"
+            )
+            return
+        
+        update_user_activity(
+            user_id=callback.from_user.id,
+            first_name=callback.from_user.first_name,
+            username=callback.from_user.username,
+            action="publish_post"
+        )
+        
+        # Publish the pending post
+        from services.post_service import publish_pending_post
+        from services.user_service import increment_posts_triggered
+        from handlers.admin import update_last_post_status
+        
+        success = await publish_pending_post(
+            bot=callback.bot,
+            post_id=post_id,
+            channel_id=config.channel_id
+        )
+        
+        if success:
+            update_last_post_status(success=True)
+            increment_posts_triggered(callback.from_user.id)
+            
+            # Update the preview message
+            await callback.message.edit_caption(
+                caption="✅ <b>Пост успешно опубликован в канале!</b>",
+                parse_mode="HTML"
+            )
+            logger.info(f"User {callback.from_user.id} published post {post_id}")
+        else:
+            update_last_post_status(success=False, error="Publish failed")
+            await callback.message.edit_caption(
+                caption="❌ <b>Не удалось опубликовать пост.</b>\n\nПроверьте логи для деталей.",
+                parse_mode="HTML"
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_publish_post: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка при публикации", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("cancel_preview"))
+async def cb_cancel_preview(callback: CallbackQuery) -> None:
+    """Handle '❌ Отменить' button - cancel pending post."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer("Отменено")
+        
+        # Extract post_id from callback data
+        parts = callback.data.split(":")
+        post_id = parts[1] if len(parts) > 1 else ""
+        
+        # Remove pending post if exists
+        if post_id:
+            from services.post_service import remove_pending_post
+            remove_pending_post(post_id)
+        
+        update_user_activity(
+            user_id=callback.from_user.id,
+            first_name=callback.from_user.first_name,
+            username=callback.from_user.username,
+            action="cancel_preview"
+        )
+        
+        # Update the preview message
+        await callback.message.edit_caption(
+            caption="❌ <b>Публикация отменена</b>\n\nИспользуйте меню для создания нового поста.",
+            parse_mode="HTML"
+        )
+        
+        logger.info(f"User {callback.from_user.id} cancelled preview")
+        
+    except Exception as e:
+        logger.error(f"Error in cb_cancel_preview: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("regenerate_post"))
+async def cb_regenerate_post(callback: CallbackQuery) -> None:
+    """Handle '🔄 Регенерировать' button - generate new post content."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer("🔄 Генерирую новый пост...")
+        
+        # Extract old post_id and remove it
+        parts = callback.data.split(":")
+        old_post_id = parts[1] if len(parts) > 1 else ""
+        
+        if old_post_id:
+            from services.post_service import remove_pending_post
+            remove_pending_post(old_post_id)
+        
+        update_user_activity(
+            user_id=callback.from_user.id,
+            first_name=callback.from_user.first_name,
+            username=callback.from_user.username,
+            action="regenerate_post"
+        )
+        
+        # Update message to show loading
+        await callback.message.edit_caption(
+            caption="🔄 <b>Генерирую новый пост...</b>\n\nЭто может занять 1-2 минуты.",
+            parse_mode="HTML"
+        )
+        
+        # Generate new post with preview
+        from services.post_service import post_to_channel
+        from keyboards import preview_post_keyboard
+        
+        success, new_post_id = await post_to_channel(
+            bot=callback.bot,
+            channel_id=config.channel_id,
+            preview_mode=True,
+            admin_id=callback.from_user.id
+        )
+        
+        if success and new_post_id:
+            # Delete the old message (new preview was sent)
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            logger.info(f"User {callback.from_user.id} regenerated post, new_id: {new_post_id}")
+        else:
+            await callback.message.edit_caption(
+                caption="❌ <b>Не удалось сгенерировать новый пост.</b>\n\nПопробуйте позже.",
+                parse_mode="HTML"
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_regenerate_post: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка при регенерации", show_alert=True)
+
+
+# ============================================
 # CATCH-ALL CALLBACK HANDLER
 # ============================================
 

@@ -152,7 +152,7 @@ async def show_help(message: Message) -> None:
 
 @router.message(F.text == "📨 Пост сейчас")
 async def btn_post_now(message: Message) -> None:
-    """Handle 'Пост сейчас' button - trigger immediate post."""
+    """Handle 'Пост сейчас' button - generate preview for admin."""
     user_id = message.from_user.id
     
     if not is_admin(user_id):
@@ -167,39 +167,34 @@ async def btn_post_now(message: Message) -> None:
             action="btn_post_now"
         )
         
-        # Import here to avoid circular imports
-        from handlers.admin import cmd_post_now
-        from aiogram import Bot
-        
         # Get bot instance from message
         bot = message.bot
         
         await message.answer(
-            "⏳ Генерирую и отправляю пост в канал...\n\n"
+            "⏳ Генерирую пост...\n\n"
             "Это может занять 1-2 минуты.",
             reply_markup=main_menu_keyboard()
         )
         
-        logger.info(f"User {user_id} triggered post via button")
+        logger.info(f"User {user_id} triggered post preview via button")
         
-        # Trigger the post
+        # Generate preview instead of posting directly
         from services.post_service import post_to_channel
-        from handlers.admin import update_last_post_status
-        from services.user_service import increment_posts_triggered
+        from keyboards import preview_post_keyboard
         
-        success = await post_to_channel(bot, config.channel_id)
+        success, post_id = await post_to_channel(
+            bot=bot,
+            channel_id=config.channel_id,
+            preview_mode=True,
+            admin_id=user_id
+        )
         
-        if success:
-            update_last_post_status(success=True)
-            increment_posts_triggered(user_id)
-            await message.answer(
-                "✅ Пост успешно опубликован в канал!",
-                reply_markup=main_menu_keyboard()
-            )
+        if success and post_id:
+            logger.info(f"Preview generated for user {user_id}, post_id: {post_id}")
+            # Preview already sent by post_to_channel
         else:
-            update_last_post_status(success=False, error="Post failed")
             await message.answer(
-                "❌ Не удалось опубликовать пост. Проверьте логи.",
+                "❌ Не удалось сгенерировать пост. Проверьте логи.",
                 reply_markup=main_menu_keyboard()
             )
             

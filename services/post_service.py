@@ -7,13 +7,14 @@ import json
 import logging
 import asyncio
 import random
+import uuid
 from datetime import datetime, date
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from io import BytesIO
 
 from aiogram import Bot
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 
 from config import config
 from services.holidays_api import fetch_holidays_for_date
@@ -24,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 # Path to quotes file
 QUOTES_FILE = Path(__file__).parent.parent / "data" / "quotes.json"
+
+# Temporary storage for preview posts (post_id -> post_data)
+_pending_posts: Dict[str, Dict[str, Any]] = {}
 
 # Weekday mapping for quotes.json keys
 WEEKDAY_KEYS = {
@@ -142,27 +146,19 @@ def _format_post_text(
     return "\n".join(post_parts)
 
 
-async def post_to_channel(
-    bot: Bot,
-    channel_id: str,
-    max_retries: int = 3,
-    retry_delay: int = 300
-) -> bool:
+async def generate_post_data(
+    max_retries: int = 3
+) -> Optional[Dict[str, Any]]:
     """
-    Generate and post content to the Telegram channel.
-    
-    Args:
-        bot: Aiogram Bot instance
-        channel_id: Target channel ID
-        max_retries: Maximum retry attempts
-        retry_delay: Delay between retries in seconds
+    Generate post content and image without publishing.
     
     Returns:
-        True if post was successful, False otherwise
+        Dictionary with post_text, image_bytes, content, quote, date
+        or None if generation failed
     """
     for attempt in range(1, max_retries + 1):
         try:
-            logger.info(f"Starting post generation (attempt {attempt}/{max_retries})")
+            logger.info(f"Generating post data (attempt {attempt}/{max_retries})")
             start_time = datetime.now()
             
             # Step 1: Get current date
@@ -197,41 +193,248 @@ async def post_to_channel(
                 english_prompt=image_prompt
             )
             
-            # Step 7: Send to channel
-            if image_bytes:
-                logger.info("Sending post with image to channel...")
-                photo = BufferedInputFile(image_bytes, filename="recipe.jpg")
-                await bot.send_photo(
-                    chat_id=channel_id,
-                    photo=photo,
-                    caption=post_text,
-                    parse_mode="HTML"
-                )
-            else:
-                # Fallback: send text only
-                logger.warning("No image available, sending text-only post...")
-                await bot.send_message(
-                    chat_id=channel_id,
-                    text=post_text,
-                    parse_mode="HTML"
-                )
-            
-            # Calculate and log execution time
             execution_time = (datetime.now() - start_time).total_seconds()
-            logger.info(f"Post published successfully in {execution_time:.1f}s")
+            logger.info(f"Post data generated in {execution_time:.1f}s")
             
-            return True
+            return {
+                "post_text": post_text,
+                "image_bytes": image_bytes,
+                "content": content,
+                "quote": quote,
+                "date": today,
+                "generated_at": datetime.now()
+            }
             
         except Exception as e:
-            logger.error(f"Post attempt {attempt} failed: {e}", exc_info=True)
-            
-            if attempt < max_retries:
-                logger.info(f"Waiting {retry_delay}s before retry...")
-                await asyncio.sleep(retry_delay)
-            else:
+            logger.error(f"Post data generation attempt {attempt} failed: {e}", exc_info=True)
+            if attempt >= max_retries:
                 logger.error(f"All {max_retries} attempts failed")
+                return None
+            await asyncio.sleep(5)
     
+    return None
+
+
+def store_pending_post(post_data: Dict[str, Any]) -> str:
+    """
+    Store post data for later publishing.
+    
+    Args:
+        post_data: Generated post data
+        
+    Returns:
+        Unique post_id for retrieval
+    """
+    post_id = str(uuid.uuid4())[:8]
+    _pending_posts[post_id] = post_data
+    logger.info(f"Stored pending post with id: {post_id}")
+    return post_id
+
+
+def get_pending_post(post_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve stored pending post.
+    
+    Args:
+        post_id: Post identifier
+        
+    Returns:
+        Post data or None if not found
+    """
+    return _pending_posts.get(post_id)
+
+
+def remove_pending_post(post_id: str) -> bool:
+    """
+    Remove pending post from storage.
+    
+    Args:
+        post_id: Post identifier
+        
+    Returns:
+        True if removed, False if not found
+    """
+    if post_id in _pending_posts:
+        del _pending_posts[post_id]
+        logger.info(f"Removed pending post: {post_id}")
+        return True
     return False
+
+
+async def send_preview_to_admin(
+    bot: Bot,
+    admin_id: int,
+    post_data: Dict[str, Any],
+    reply_markup: InlineKeyboardMarkup
+) -> bool:
+    """
+    Send post preview to admin with action buttons.
+    
+    Args:
+        bot: Aiogram Bot instance
+        admin_id: Admin user ID to send preview to
+        post_data: Generated post data
+        reply_markup: Inline keyboard with actions
+        
+    Returns:
+        True if preview sent successfully
+    """
+    try:
+        post_text = post_data.get("post_text", "")
+        image_bytes = post_data.get("image_bytes")
+        
+        preview_header = "📝 <b>Предпросмотр поста:</b>\n\n"
+        full_text = preview_header + post_text
+        
+        # Truncate if too long for caption (max 1024 chars)
+        if len(full_text) > 1024:
+            full_text = full_text[:1020] + "..."
+        
+        if image_bytes:
+            photo = BufferedInputFile(image_bytes, filename="preview.jpg")
+            await bot.send_photo(
+                chat_id=admin_id,
+                photo=photo,
+                caption=full_text,
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        else:
+            await bot.send_message(
+                chat_id=admin_id,
+                text=full_text,
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        
+        logger.info(f"Preview sent to admin {admin_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to send preview: {e}", exc_info=True)
+        return False
+
+
+async def publish_pending_post(
+    bot: Bot,
+    post_id: str,
+    channel_id: str
+) -> bool:
+    """
+    Publish a pending post to channel.
+    
+    Args:
+        bot: Aiogram Bot instance
+        post_id: Stored post identifier
+        channel_id: Target channel ID
+        
+    Returns:
+        True if published successfully
+    """
+    post_data = get_pending_post(post_id)
+    if not post_data:
+        logger.error(f"Pending post not found: {post_id}")
+        return False
+    
+    try:
+        post_text = post_data.get("post_text", "")
+        image_bytes = post_data.get("image_bytes")
+        
+        if image_bytes:
+            photo = BufferedInputFile(image_bytes, filename="recipe.jpg")
+            await bot.send_photo(
+                chat_id=channel_id,
+                photo=photo,
+                caption=post_text,
+                parse_mode="HTML"
+            )
+        else:
+            await bot.send_message(
+                chat_id=channel_id,
+                text=post_text,
+                parse_mode="HTML"
+            )
+        
+        # Remove from pending after successful publish
+        remove_pending_post(post_id)
+        logger.info(f"Published pending post {post_id} to channel")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to publish pending post: {e}", exc_info=True)
+        return False
+
+
+async def post_to_channel(
+    bot: Bot,
+    channel_id: str,
+    max_retries: int = 3,
+    retry_delay: int = 300,
+    preview_mode: bool = False,
+    admin_id: Optional[int] = None,
+    reply_markup: Optional[InlineKeyboardMarkup] = None
+) -> Tuple[bool, Optional[str]]:
+    """
+    Generate and post content to the Telegram channel.
+    
+    Args:
+        bot: Aiogram Bot instance
+        channel_id: Target channel ID
+        max_retries: Maximum retry attempts
+        retry_delay: Delay between retries in seconds
+        preview_mode: If True, send preview to admin instead of publishing
+        admin_id: Admin user ID for preview (required if preview_mode=True)
+        reply_markup: Keyboard for preview message
+    
+    Returns:
+        Tuple of (success: bool, post_id: Optional[str])
+        post_id is returned only in preview_mode
+    """
+    # Generate post data
+    post_data = await generate_post_data(max_retries=max_retries)
+    
+    if not post_data:
+        return (False, None)
+    
+    # Preview mode: send to admin for review
+    if preview_mode and admin_id:
+        post_id = store_pending_post(post_data)
+        
+        # Import here to avoid circular imports
+        from keyboards import preview_post_keyboard
+        kb = reply_markup or preview_post_keyboard(post_id)
+        
+        success = await send_preview_to_admin(bot, admin_id, post_data, kb)
+        return (success, post_id if success else None)
+    
+    # Direct mode: publish to channel immediately
+    try:
+        post_text = post_data.get("post_text", "")
+        image_bytes = post_data.get("image_bytes")
+        
+        if image_bytes:
+            logger.info("Sending post with image to channel...")
+            photo = BufferedInputFile(image_bytes, filename="recipe.jpg")
+            await bot.send_photo(
+                chat_id=channel_id,
+                photo=photo,
+                caption=post_text,
+                parse_mode="HTML"
+            )
+        else:
+            logger.warning("No image available, sending text-only post...")
+            await bot.send_message(
+                chat_id=channel_id,
+                text=post_text,
+                parse_mode="HTML"
+            )
+        
+        logger.info("Post published successfully to channel")
+        return (True, None)
+        
+    except Exception as e:
+        logger.error(f"Failed to publish to channel: {e}", exc_info=True)
+        return (False, None)
 
 
 async def send_test_message(bot: Bot, channel_id: str) -> bool:
