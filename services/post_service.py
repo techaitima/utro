@@ -20,6 +20,7 @@ from config import config
 from services.holidays_api import fetch_holidays_for_date
 from services.ai_content import generate_post_content, MONTHS_RU, WEEKDAYS_RU
 from services.image_generator import generate_food_image
+from utils.logger import mask_user_id, mask_channel_id
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +308,7 @@ async def send_preview_to_admin(
                 reply_markup=reply_markup
             )
         
-        logger.info(f"Preview sent to admin {admin_id}")
+        logger.info(f"Preview sent to admin {mask_user_id(admin_id, config.debug_mode)}")
         return True
         
     except Exception as e:
@@ -357,7 +358,7 @@ async def publish_pending_post(
         
         # Remove from pending after successful publish
         remove_pending_post(post_id)
-        logger.info(f"Published pending post {post_id} to channel")
+        logger.info(f"Published pending post {post_id} to channel {mask_channel_id(channel_id, config.debug_mode)}")
         return True
         
     except Exception as e:

@@ -12,6 +12,7 @@ from aiogram.filters import Command
 from config import config
 from keyboards import main_menu_keyboard, settings_keyboard
 from services.user_service import update_user_activity
+from utils.logger import mask_user_id
 
 logger = logging.getLogger(__name__)
 router = Router(name="common")
@@ -29,7 +30,7 @@ async def send_access_denied(message: Message) -> None:
         "Этот бот доступен только для администраторов.",
         parse_mode="HTML"
     )
-    logger.warning(f"Unauthorized access attempt from user {message.from_user.id}")
+    logger.warning(f"Unauthorized access attempt from {mask_user_id(message.from_user.id, config.debug_mode)}")
 
 
 @router.message(Command("start"))
@@ -72,7 +73,7 @@ async def cmd_start(message: Message) -> None:
             parse_mode="HTML",
             reply_markup=main_menu_keyboard()
         )
-        logger.info(f"User {user_id} started the bot")
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} started the bot")
         
     except Exception as e:
         logger.error(f"Error in cmd_start: {e}", exc_info=True)
@@ -100,7 +101,7 @@ async def cmd_help(message: Message) -> None:
         )
         
         await show_help(message)
-        logger.info(f"User {user_id} requested help")
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} requested help")
         
     except Exception as e:
         logger.error(f"Error in cmd_help: {e}", exc_info=True)
@@ -176,7 +177,7 @@ async def btn_post_now(message: Message) -> None:
             reply_markup=main_menu_keyboard()
         )
         
-        logger.info(f"User {user_id} triggered post preview via button")
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} triggered post preview via button")
         
         # Generate preview instead of posting directly
         from services.post_service import post_to_channel
@@ -190,7 +191,7 @@ async def btn_post_now(message: Message) -> None:
         )
         
         if success and post_id:
-            logger.info(f"Preview generated for user {user_id}, post_id: {post_id}")
+            logger.info(f"Preview generated for {mask_user_id(user_id, config.debug_mode)}, post_id: {post_id}")
             # Preview already sent by post_to_channel
         else:
             await message.answer(
@@ -268,7 +269,7 @@ async def btn_settings(message: Message) -> None:
             parse_mode="HTML",
             reply_markup=settings_keyboard()
         )
-        logger.info(f"User {user_id} opened settings")
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} opened settings"))
         
     except Exception as e:
         logger.error(f"Error in btn_settings: {e}", exc_info=True)
@@ -296,7 +297,7 @@ async def btn_help(message: Message) -> None:
         )
         
         await show_help(message)
-        logger.info(f"User {user_id} requested help via button")
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} requested help via button")
         
     except Exception as e:
         logger.error(f"Error in btn_help: {e}", exc_info=True)

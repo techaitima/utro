@@ -25,6 +25,7 @@ from handlers.admin import set_bot_start_time, update_last_post_status
 from services.scheduler import start_scheduler, stop_scheduler
 from services.post_service import post_to_channel
 from services.user_service import ensure_data_file_exists
+from utils.logger import mask_channel_id, mask_user_id
 
 # Configure logging
 logging.basicConfig(
@@ -91,7 +92,7 @@ async def on_startup(bot: Bot) -> None:
     logger.info("=" * 50)
     logger.info("🤖 Utro Bot starting...")
     logger.info(f"📅 Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"📢 Channel ID: {config.channel_id}")
+    logger.info(f"📢 Channel ID: {mask_channel_id(config.channel_id, config.debug_mode)}")
     logger.info(f"🕐 Timezone: {config.timezone}")
     logger.info(f"⏰ Morning post time: {config.morning_post_time}")
     logger.info(f"👤 Admin users: {len(config.admin_user_ids)}")
@@ -109,7 +110,7 @@ async def on_startup(bot: Bot) -> None:
     try:
         bot_info = await bot.get_me()
         logger.info(f"🤖 Bot username: @{bot_info.username}")
-        logger.info(f"🆔 Bot ID: {bot_info.id}")
+        logger.info(f"🆔 Bot ID: {mask_user_id(bot_info.id, config.debug_mode)}")
     except Exception as e:
         logger.warning(f"Could not get bot info: {e}")
 

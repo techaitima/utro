@@ -17,6 +17,7 @@ from keyboards import (
     back_keyboard
 )
 from services.user_service import update_user_activity, format_user_stats
+from utils.logger import mask_user_id, mask_channel_id
 
 logger = logging.getLogger(__name__)
 router = Router(name="callbacks")
@@ -30,7 +31,7 @@ def is_admin(user_id: int) -> bool:
 async def answer_unauthorized(callback: CallbackQuery) -> None:
     """Answer callback for unauthorized users."""
     await callback.answer("❌ У вас нет доступа", show_alert=True)
-    logger.warning(f"Unauthorized callback from user {callback.from_user.id}")
+    logger.warning(f"Unauthorized callback from {mask_user_id(callback.from_user.id, config.debug_mode)}")
 
 
 # ============================================
@@ -225,7 +226,7 @@ async def cb_test_holidays(callback: CallbackQuery) -> None:
             reply_markup=back_keyboard()
         )
         
-        logger.info(f"User {callback.from_user.id} tested holidays API: {len(holidays)} found")
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} tested holidays API: {len(holidays)} found")
         
     except Exception as e:
         logger.error(f"Error in cb_test_holidays: {e}", exc_info=True)
@@ -279,7 +280,7 @@ async def cb_test_gpt(callback: CallbackQuery) -> None:
             reply_markup=back_keyboard()
         )
         
-        logger.info(f"User {callback.from_user.id} tested GPT-4o mini")
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} tested GPT-4o mini")
         
     except Exception as e:
         logger.error(f"Error in cb_test_gpt: {e}", exc_info=True)
@@ -338,7 +339,7 @@ async def cb_test_dalle(callback: CallbackQuery) -> None:
                 reply_markup=back_keyboard()
             )
             
-            logger.info(f"User {callback.from_user.id} tested DALL-E 3 successfully")
+            logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} tested DALL-E 3 successfully")
         else:
             await callback.message.edit_text(
                 "❌ <b>Не удалось сгенерировать изображение</b>\n\n"
@@ -381,7 +382,7 @@ async def cb_my_stats(callback: CallbackQuery) -> None:
             reply_markup=back_keyboard()
         )
         
-        logger.info(f"User {callback.from_user.id} viewed their stats")
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} viewed their stats"))
         
     except Exception as e:
         logger.error(f"Error in cb_my_stats: {e}", exc_info=True)
@@ -437,7 +438,7 @@ async def cb_confirm_post(callback: CallbackQuery) -> None:
                 parse_mode="HTML"
             )
         
-        logger.info(f"User {callback.from_user.id} confirmed post: {'success' if success else 'failed'}")
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} confirmed post: {'success' if success else 'failed'}")
         
     except Exception as e:
         logger.error(f"Error in cb_confirm_post: {e}", exc_info=True)
@@ -462,7 +463,7 @@ async def cb_cancel_post(callback: CallbackQuery) -> None:
             parse_mode="HTML"
         )
         
-        logger.info(f"User {callback.from_user.id} cancelled post")
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} cancelled post")
         
     except Exception as e:
         logger.error(f"Error in cb_cancel_post: {e}", exc_info=True)
@@ -501,7 +502,7 @@ async def cb_admin_status(callback: CallbackQuery) -> None:
 
 ⏱ <b>Аптайм:</b> {days}д {hours}ч {minutes}м
 📅 <b>Время поста:</b> {config.morning_post_time} (МСК)
-📢 <b>Канал:</b> {config.channel_id}
+📢 <b>Канал:</b> {mask_channel_id(config.channel_id, config.debug_mode)}
 """
         
         await callback.message.edit_text(
@@ -573,7 +574,7 @@ async def cb_publish_post(callback: CallbackQuery) -> None:
                 caption="✅ <b>Пост успешно опубликован в канале!</b>",
                 parse_mode="HTML"
             )
-            logger.info(f"User {callback.from_user.id} published post {post_id}")
+            logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} published post {post_id}")
         else:
             update_last_post_status(success=False, error="Publish failed")
             await callback.message.edit_caption(
@@ -618,7 +619,7 @@ async def cb_cancel_preview(callback: CallbackQuery) -> None:
             parse_mode="HTML"
         )
         
-        logger.info(f"User {callback.from_user.id} cancelled preview")
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} cancelled preview"))
         
     except Exception as e:
         logger.error(f"Error in cb_cancel_preview: {e}", exc_info=True)
@@ -673,7 +674,7 @@ async def cb_regenerate_post(callback: CallbackQuery) -> None:
                 await callback.message.delete()
             except Exception:
                 pass
-            logger.info(f"User {callback.from_user.id} regenerated post, new_id: {new_post_id}")
+            logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} regenerated post, new_id: {new_post_id}")
         else:
             await callback.message.edit_caption(
                 caption="❌ <b>Не удалось сгенерировать новый пост.</b>\n\nПопробуйте позже.",
@@ -693,4 +694,4 @@ async def cb_regenerate_post(callback: CallbackQuery) -> None:
 async def cb_unknown(callback: CallbackQuery) -> None:
     """Handle unknown callback queries."""
     await callback.answer("⚠️ Неизвестная команда", show_alert=True)
-    logger.warning(f"Unknown callback: {callback.data} from user {callback.from_user.id}")
+    logger.warning(f"Unknown callback: {callback.data} from {mask_user_id(callback.from_user.id, config.debug_mode)}")
