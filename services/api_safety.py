@@ -173,6 +173,31 @@ class APIRateLimiter:
     async def record_failure(self) -> None:
         """Record a failed request."""
         await self.circuit_breaker.record_failure()
+    
+    async def check_rate_limit(self, user_id: Optional[int] = None) -> bool:
+        """
+        Check rate limits and raise exception if exceeded.
+        
+        Args:
+            user_id: Optional user ID for per-user limits
+            
+        Returns:
+            True if request is allowed
+            
+        Raises:
+            RateLimitExceeded: If rate limit is exceeded
+            CircuitBreakerOpen: If circuit breaker is open
+        """
+        allowed, error_message = await self.check_limits(user_id)
+        
+        if not allowed:
+            if "Сервис временно недоступен" in error_message:
+                raise CircuitBreakerOpen(error_message)
+            raise RateLimitExceeded(error_message)
+        
+        # Record the request
+        await self.record_request(user_id)
+        return True
 
 
 # Global rate limiters for each API
