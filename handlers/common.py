@@ -287,8 +287,8 @@ async def btn_settings(message: Message) -> None:
         
         settings = get_settings()
         img_status = "вкл" if settings.image_enabled else "выкл"
-        model_name = settings.image_model.value
-        template_name = settings.text_template.value
+        model_name = settings.image_model
+        template_name = settings.text_template
         
         settings_text = f"""
 ⚙️ <b>Настройки</b>

@@ -57,9 +57,9 @@ async def generate_food_image(
     for attempt in range(1, max_retries + 1):
         try:
             # Check rate limits before making API call
-            await api_rate_limiter.check_rate_limit("dalle")
+            await get_rate_limiter("dalle").check_rate_limit()
             
-            logger.info(f"Generating image for '{recipe_name}' (attempt {attempt}/{max_retries})")
+            logger.info(f"Generating image for '{recipe_name}' (attempt {attempt}/{max_retries})"))
             
             # Generate image with DALL-E 3
             response = await client.images.generate(
