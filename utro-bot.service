@@ -15,7 +15,7 @@ Environment="PATH=/root/utro/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 
 # Start command
-ExecStart=/root/utro/venv/bin/python bot.py
+ExecStart=/root/utro/venv/bin/python bot_v2.py
 
 # Restart policy
 Restart=always

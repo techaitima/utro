@@ -25,6 +25,9 @@ class Config:
     # OpenAI API Key for GPT-4o mini and DALL-E 3
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     
+    # Together AI API Key for Flux image generation
+    flux_api_key: str = field(default_factory=lambda: os.getenv("FLUX_API_KEY", ""))
+    
     # Calendarific API Key for holidays
     holidays_api_key: str = field(default_factory=lambda: os.getenv("HOLIDAYS_API_KEY", ""))
     
@@ -98,6 +101,11 @@ class Config:
     def is_admin(self, user_id: int) -> bool:
         """Check if user ID is in admin list."""
         return user_id in self.admin_user_ids
+    
+    @property
+    def admin_id(self) -> int:
+        """Get the first admin ID (primary admin)."""
+        return self.admin_user_ids[0] if self.admin_user_ids else 0
 
 
 # Global configuration instance
