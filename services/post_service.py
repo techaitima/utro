@@ -152,6 +152,9 @@ def split_by_sentences(text: str) -> list[str]:
     # Split on . ! ? followed by space or end
     sentences = re.split(r'(?<=[.!?])\s+', text)
     return [s for s in sentences if s.strip()]
+
+
+def format_post_text(
     target_date: date,
     quote: Dict[str, str],
     content: Dict[str, Any],
