@@ -21,6 +21,7 @@ from aiogram.types import ErrorEvent
 
 from config import config
 from handlers import admin_router, common_router, callbacks_router
+from handlers.fsm_handlers import router as fsm_router
 from handlers.admin import set_bot_start_time, update_last_post_status
 from services.scheduler import start_scheduler, stop_scheduler
 from services.post_service import post_to_channel
@@ -189,11 +190,12 @@ async def main() -> None:
         # Return True to prevent the error from propagating
         return True
     
-    # Register routers (order matters - callbacks before common for catch-all)
+    # Register routers (order matters - FSM first, then callbacks before common for catch-all)
+    dp.include_router(fsm_router)
     dp.include_router(admin_router)
     dp.include_router(callbacks_router)
     dp.include_router(common_router)
-    logger.info("✅ Routers registered: admin, callbacks, common")
+    logger.info("✅ Routers registered: fsm, admin, callbacks, common")
     
     # Register startup and shutdown hooks
     dp.startup.register(on_startup)

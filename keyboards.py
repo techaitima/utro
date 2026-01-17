@@ -1,7 +1,7 @@
 """
-Keyboards for the Utro Bot.
+Keyboards for the Utro Bot v3.0
 Contains both Reply and Inline keyboards.
-Updated with template, model selection, and image-from-photo features.
+Updated with new post flow, neural network tests submenu, improved navigation.
 """
 
 from aiogram.types import (
@@ -27,15 +27,15 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="📅 Сегодня"),
+                KeyboardButton(text="☀️ Утро сегодня"),
                 KeyboardButton(text="📊 Статус")
             ],
             [
-                KeyboardButton(text="🖼 Пост из фото"),
+                KeyboardButton(text="✨ Новый пост"),
                 KeyboardButton(text="⚙️ Настройки")
             ],
             [
-                KeyboardButton(text="ℹ️ Помощь")
+                KeyboardButton(text="❔ Помощь")
             ]
         ],
         resize_keyboard=True,
@@ -60,6 +60,17 @@ def editing_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def skip_keyboard() -> ReplyKeyboardMarkup:
+    """Keyboard with skip and cancel buttons."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="⏭ Пропустить")],
+            [KeyboardButton(text="❌ Отмена")]
+        ],
+        resize_keyboard=True
+    )
+
+
 def remove_keyboard() -> ReplyKeyboardRemove:
     """Remove the reply keyboard."""
     return ReplyKeyboardRemove()
@@ -77,13 +88,13 @@ def settings_keyboard() -> InlineKeyboardMarkup:
     settings = get_settings()
     
     # Format current values for display
-    img_status = "✅ Вкл" if settings.image_enabled else "❌ Выкл"
+    img_status = "вкл" if settings.image_enabled else "выкл"
     model_name = "DALL-E 3" if settings.image_model == ImageModel.DALLE3.value else "Flux"
     template_names = {
         TextTemplate.SHORT.value: "Короткий",
         TextTemplate.MEDIUM.value: "Средний",
         TextTemplate.LONG.value: "Длинный",
-        TextTemplate.CUSTOM.value: "Кастомный"
+        TextTemplate.CUSTOM.value: "Свой"
     }
     template_name = template_names.get(settings.text_template, "Средний")
     
@@ -91,7 +102,7 @@ def settings_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=f"🖼 Изображения: {img_status}", 
+                    text=f"🖼 Изображение: {img_status}", 
                     callback_data="settings:image_toggle"
                 )
             ],
@@ -111,15 +122,54 @@ def settings_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="⏰ Расписание", callback_data="schedule")
             ],
             [
-                InlineKeyboardButton(text="🎨 Тест DALL-E", callback_data="test_dalle"),
-                InlineKeyboardButton(text="🎉 Тест праздников", callback_data="test_holidays")
+                InlineKeyboardButton(text="🧪 Тест нейросетей", callback_data="settings:neural_tests")
             ],
             [
-                InlineKeyboardButton(text="🔙 Назад", callback_data="back_main")
+                InlineKeyboardButton(text="📈 Моя статистика", callback_data="my_stats")
+            ],
+            [
+                InlineKeyboardButton(text="◀️ Назад", callback_data="back_main")
             ]
         ]
     )
     return keyboard
+
+
+def neural_tests_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for neural network tests submenu."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🖼 Тест картинки", callback_data="test_image_confirm")
+            ],
+            [
+                InlineKeyboardButton(text="🎉 Тест праздников", callback_data="test_holidays")
+            ],
+            [
+                InlineKeyboardButton(text="◀️ Назад", callback_data="back_settings")
+            ]
+        ]
+    )
+
+
+def confirm_image_test_keyboard() -> InlineKeyboardMarkup:
+    """Confirmation dialog before generating test image."""
+    settings = get_settings()
+    model_name = "DALL-E 3" if settings.image_model == ImageModel.DALLE3.value else "Flux"
+    
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"✅ Да, сгенерировать ({model_name})", 
+                    callback_data="test_image_run"
+                )
+            ],
+            [
+                InlineKeyboardButton(text="❌ Отмена", callback_data="settings:neural_tests")
+            ]
+        ]
+    )
 
 
 def model_select_keyboard() -> InlineKeyboardMarkup:
@@ -161,52 +211,74 @@ def template_select_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=f"{check(TextTemplate.SHORT.value)}📄 Короткий (~800)", 
+                    text=f"{check(TextTemplate.SHORT.value)}📄 Короткий (~800 символов)", 
                     callback_data="template:SHORT"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=f"{check(TextTemplate.MEDIUM.value)}📃 Средний (~1024)", 
+                    text=f"{check(TextTemplate.MEDIUM.value)}📃 Средний (~1000 символов)", 
                     callback_data="template:MEDIUM"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=f"{check(TextTemplate.LONG.value)}📜 Длинный (~4096)", 
+                    text=f"{check(TextTemplate.LONG.value)}📜 Длинный (~2000 символов)", 
                     callback_data="template:LONG"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=f"{check(TextTemplate.CUSTOM.value)}✏️ Кастомный", 
-                    callback_data="template:CUSTOM"
+                    text="🔢 Задать кол-во символов", 
+                    callback_data="template:custom_length"
                 )
             ],
             [
-                InlineKeyboardButton(text="🔙 Назад", callback_data="back_settings")
+                InlineKeyboardButton(text="◀️ Назад", callback_data="back_settings")
             ]
         ]
     )
 
 
-def image_category_keyboard() -> InlineKeyboardMarkup:
-    """Keyboard for selecting recipe category when creating post from image."""
+def new_post_category_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for selecting new post category."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🥗 ПП", callback_data="cat:pp"),
-                InlineKeyboardButton(text="🥑 Кето", callback_data="cat:keto")
+                InlineKeyboardButton(text="🍳 Рецепт", callback_data="newpost:recipe")
             ],
             [
-                InlineKeyboardButton(text="👨‍🍳 Кулинария", callback_data="cat:culinary")
+                InlineKeyboardButton(text="✏️ Свой пост", callback_data="newpost:custom")
             ],
             [
-                InlineKeyboardButton(text="🍳 Завтраки", callback_data="cat:breakfast"),
-                InlineKeyboardButton(text="🍰 Десерты", callback_data="cat:dessert")
+                InlineKeyboardButton(text="◀️ Назад", callback_data="back_main")
+            ]
+        ]
+    )
+
+
+def recipe_category_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for selecting recipe category."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🥗 ПП", callback_data="recipe:pp"),
+                InlineKeyboardButton(text="🥑 Кето", callback_data="recipe:keto")
             ],
             [
-                InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_action")
+                InlineKeyboardButton(text="🌱 Веган", callback_data="recipe:vegan"),
+                InlineKeyboardButton(text="🍵 Детокс", callback_data="recipe:detox")
+            ],
+            [
+                InlineKeyboardButton(text="🍳 Завтраки", callback_data="recipe:breakfast"),
+                InlineKeyboardButton(text="🍰 Десерты", callback_data="recipe:dessert")
+            ],
+            [
+                InlineKeyboardButton(text="🥤 Смузи", callback_data="recipe:smoothie"),
+                InlineKeyboardButton(text="🥣 Супы", callback_data="recipe:soup")
+            ],
+            [
+                InlineKeyboardButton(text="◀️ Назад", callback_data="newpost:back")
             ]
         ]
     )
@@ -280,17 +352,18 @@ def schedule_keyboard() -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="⏰ 06:00", callback_data="set_time_06"),
-                InlineKeyboardButton(text="⏰ 07:00", callback_data="set_time_07"),
-                InlineKeyboardButton(text="⏰ 08:00", callback_data="set_time_08")
+                InlineKeyboardButton(text="⏰ 07:00", callback_data="set_time:07:00"),
+                InlineKeyboardButton(text="⏰ 08:00", callback_data="set_time:08:00")
             ],
             [
-                InlineKeyboardButton(text="⏰ 09:00", callback_data="set_time_09"),
-                InlineKeyboardButton(text="⏰ 10:00", callback_data="set_time_10"),
-                InlineKeyboardButton(text="⏰ 12:00", callback_data="set_time_12")
+                InlineKeyboardButton(text="⏰ 09:00", callback_data="set_time:09:00"),
+                InlineKeyboardButton(text="⏰ 10:00", callback_data="set_time:10:00")
             ],
             [
-                InlineKeyboardButton(text="🔙 Назад", callback_data="back_settings")
+                InlineKeyboardButton(text="🕐 Своё время", callback_data="set_time:custom")
+            ],
+            [
+                InlineKeyboardButton(text="◀️ Назад", callback_data="back_settings")
             ]
         ]
     )
@@ -305,11 +378,80 @@ def test_result_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔄 Повторить", callback_data="repeat_test")
             ],
             [
-                InlineKeyboardButton(text="🔙 К настройкам", callback_data="back_settings")
+                InlineKeyboardButton(text="◀️ К настройкам", callback_data="back_settings")
             ]
         ]
     )
     return keyboard
+
+
+def multipost_keyboard(post_id: str, part_num: int, total_parts: int) -> InlineKeyboardMarkup:
+    """
+    Keyboard for multi-part posts.
+    Shows publish button only on last part.
+    """
+    buttons = []
+    
+    if part_num < total_parts:
+        # Not the last part - show next button
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"➡️ Часть {part_num + 1}/{total_parts}",
+                callback_data=f"multipost_next:{post_id}:{part_num + 1}"
+            )
+        ])
+    else:
+        # Last part - show publish button
+        buttons.append([
+            InlineKeyboardButton(
+                text="✅ Опубликовать все части",
+                callback_data=f"multipost_publish:{post_id}"
+            )
+        ])
+    
+    buttons.append([
+        InlineKeyboardButton(
+            text="✏️ Редактировать",
+            callback_data=f"edit:{post_id}"
+        )
+    ])
+    
+    buttons.append([
+        InlineKeyboardButton(
+            text="❌ Отменить",
+            callback_data=f"cancel:{post_id}"
+        )
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def photo_prompt_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for asking about photo attachment."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📝 Создать без фото", callback_data="newpost:no_photo")
+            ],
+            [
+                InlineKeyboardButton(text="◀️ Назад", callback_data="newpost:back")
+            ]
+        ]
+    )
+
+
+def post_prompt_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for asking about post content."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🤖 Создать автоматически", callback_data="newpost:auto")
+            ],
+            [
+                InlineKeyboardButton(text="◀️ Назад", callback_data="newpost:back")
+            ]
+        ]
+    )
 
 
 # ============================================

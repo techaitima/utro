@@ -8,6 +8,7 @@ from datetime import datetime, date
 
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, BufferedInputFile
+from aiogram.fsm.context import FSMContext
 
 from config import config
 from keyboards import (
@@ -17,7 +18,18 @@ from keyboards import (
     back_keyboard,
     model_select_keyboard,
     template_select_keyboard,
-    preview_post_keyboard
+    preview_post_keyboard,
+    neural_tests_keyboard,
+    confirm_image_test_keyboard,
+    new_post_category_keyboard,
+    recipe_category_keyboard,
+    cancel_keyboard
+)
+from handlers.states import (
+    ScheduleStates,
+    TemplateStates,
+    NewPostStates,
+    EditPostStates
 )
 from services.user_service import update_user_activity, format_user_stats
 from services.settings_service import (
@@ -94,16 +106,21 @@ async def cb_back_settings(callback: CallbackQuery) -> None:
     try:
         await callback.answer()
         
-        settings_text = """
-⚙️ <b>Настройки и тесты</b>
+        from services.settings_service import get_settings
+        settings = get_settings()
+        
+        img_status = "вкл" if settings.image_enabled else "выкл"
+        model_name = "DALL-E 3" if settings.image_model == ImageModel.DALLE3.value else "Flux"
+        
+        settings_text = f"""
+⚙️ <b>Настройки</b>
 
-Выберите действие:
+<b>Текущие параметры:</b>
+🖼 Изображение: {img_status}
+🎨 Модель: {model_name}
+📝 Шаблон: {settings.text_template}
 
-• <b>Расписание</b> — настройка времени постинга
-• <b>Тест DALL-E</b> — сгенерировать тестовое изображение
-• <b>Тест праздников</b> — проверить API праздников
-• <b>Тест GPT-4o mini</b> — сгенерировать тестовый контент
-• <b>Моя статистика</b> — ваша активность в боте
+Выберите настройку для изменения:
 """
         await callback.message.edit_text(
             settings_text,
@@ -138,12 +155,8 @@ async def cb_schedule(callback: CallbackQuery) -> None:
 ⏰ <b>Расписание постинга</b>
 
 <b>Текущее время:</b> {current_time} (МСК)
-<b>Часовой пояс:</b> {config.timezone}
 
-Выберите новое время для ежедневных постов:
-
-⚠️ <i>Изменение времени требует перезапуска бота. 
-Для изменения отредактируйте MORNING_POST_TIME в .env файле.</i>
+Выберите новое время:
 """
         await callback.message.edit_text(
             schedule_text,
@@ -172,14 +185,133 @@ async def cb_image_toggle(callback: CallbackQuery) -> None:
         new_value = not settings.image_enabled
         update_settings(image_enabled=new_value)
         
-        status = "✅ Включены" if new_value else "❌ Выключены"
-        await callback.answer(f"Изображения: {status}")
+        status = "✅ вкл" if new_value else "❌ выкл"
+        await callback.answer(f"Изображение: {status}")
         
         await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
         
     except Exception as e:
         logger.error(f"Error in cb_image_toggle: {e}", exc_info=True)
         await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "settings:neural_tests")
+async def cb_neural_tests(callback: CallbackQuery) -> None:
+    """Show neural network tests submenu."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        
+        await callback.message.edit_text(
+            "🧪 <b>Тест нейросетей</b>\n\n"
+            "Выберите тест:",
+            parse_mode="HTML",
+            reply_markup=neural_tests_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_neural_tests: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "test_image_confirm")
+async def cb_test_image_confirm(callback: CallbackQuery) -> None:
+    """Show confirmation before generating test image."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        
+        settings = get_settings()
+        model_name = "DALL-E 3" if settings.image_model == ImageModel.DALLE3.value else "Flux"
+        cost = "~$0.04" if settings.image_model == ImageModel.DALLE3.value else "~$0.003"
+        
+        await callback.message.edit_text(
+            f"🖼 <b>Тест генерации изображения</b>\n\n"
+            f"<b>Модель:</b> {model_name}\n"
+            f"<b>Стоимость:</b> {cost}\n\n"
+            f"Будет сгенерировано тестовое изображение блюда.\n"
+            f"Продолжить?",
+            parse_mode="HTML",
+            reply_markup=confirm_image_test_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_test_image_confirm: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "test_image_run")
+async def cb_test_image_run(callback: CallbackQuery) -> None:
+    """Generate test image with selected model."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        settings = get_settings()
+        model_name = "DALL-E 3" if settings.image_model == ImageModel.DALLE3.value else "Flux"
+        
+        await callback.answer(f"🎨 Генерирую ({model_name})...")
+        
+        update_user_activity(
+            user_id=callback.from_user.id,
+            first_name=callback.from_user.first_name,
+            username=callback.from_user.username,
+            action="test_image_run"
+        )
+        
+        await callback.message.edit_text(
+            f"🎨 <b>Генерирую тестовое изображение...</b>\n\n"
+            f"Модель: {model_name}\n"
+            f"Это может занять 30-60 секунд.",
+            parse_mode="HTML"
+        )
+        
+        # Generate image using current model
+        from services.image_generator import generate_food_image
+        image_bytes = await generate_food_image(
+            recipe_name="Тестовое изображение",
+            english_prompt="healthy colorful salad bowl with fresh vegetables, appetizing food photography"
+        )
+        
+        if image_bytes:
+            photo = BufferedInputFile(image_bytes, filename=f"test_{model_name.lower().replace(' ', '_')}.jpg")
+            await callback.message.answer_photo(
+                photo=photo,
+                caption=f"🎨 <b>Тестовое изображение</b>\n\n"
+                        f"✅ Модель: {model_name}\n"
+                        f"Генерация работает корректно!",
+                parse_mode="HTML"
+            )
+            
+            await callback.message.edit_text(
+                "✅ <b>Изображение сгенерировано!</b>\n\nСмотрите выше ⬆️",
+                parse_mode="HTML",
+                reply_markup=neural_tests_keyboard()
+            )
+            
+            logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} tested {model_name}")
+        else:
+            await callback.message.edit_text(
+                f"❌ <b>Не удалось сгенерировать</b>\n\n"
+                f"Проверьте API ключ и баланс для {model_name}.",
+                parse_mode="HTML",
+                reply_markup=neural_tests_keyboard()
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_test_image_run: {e}", exc_info=True)
+        await callback.message.edit_text(
+            f"⚠️ <b>Ошибка:</b>\n\n{str(e)[:200]}",
+            parse_mode="HTML",
+            reply_markup=neural_tests_keyboard()
+        )
 
 
 @router.callback_query(F.data == "settings:model_select")
@@ -242,11 +374,11 @@ async def cb_template_select(callback: CallbackQuery) -> None:
         await callback.answer()
         
         await callback.message.edit_text(
-            "📝 <b>Выбор шаблона текста</b>\n\n"
+            "📝 <b>Выбор длины поста</b>\n\n"
             "• <b>Короткий</b> (~800 символов) — Компактный пост\n"
-            "• <b>Средний</b> (~1024 символа) — Стандартный пост\n"
-            "• <b>Длинный</b> (~4096 символов) — Подробный пост\n"
-            "• <b>Кастомный</b> — Ваш собственный шаблон\n\n"
+            "• <b>Средний</b> (~1000 символов) — Стандартный\n"
+            "• <b>Длинный</b> (~2000 символов) — Подробный\n"
+            "• <b>Свой</b> — Указать количество символов\n\n"
             "Выберите шаблон:",
             parse_mode="HTML",
             reply_markup=template_select_keyboard()
@@ -258,7 +390,7 @@ async def cb_template_select(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("template:"))
-async def cb_select_template(callback: CallbackQuery) -> None:
+async def cb_select_template(callback: CallbackQuery, state: FSMContext) -> None:
     """Handle template selection."""
     if not is_admin(callback.from_user.id):
         await answer_unauthorized(callback)
@@ -267,20 +399,28 @@ async def cb_select_template(callback: CallbackQuery) -> None:
     try:
         template = callback.data.split(":")[1]
         
-        # TODO: Handle CUSTOM template input via FSM
-        if template == "CUSTOM":
-            await callback.answer("Кастомные шаблоны скоро!", show_alert=True)
+        if template == "custom_length":
+            # Enter FSM state for custom length input
+            await state.set_state(TemplateStates.waiting_for_custom_length)
+            await callback.answer()
+            await callback.message.edit_text(
+                "🔢 <b>Своя длина поста</b>\n\n"
+                "Отправьте желаемое количество символов.\n"
+                "Допустимый диапазон: 100 — 5000\n\n"
+                "Например: <code>1500</code>\n\n"
+                "Отправьте /cancel для отмены.",
+                parse_mode="HTML"
+            )
             return
         
         update_settings(text_template=template)
         
         template_names = {
-            "SHORT": "Короткий",
-            "MEDIUM": "Средний",
-            "LONG": "Длинный",
-            "CUSTOM": "Кастомный"
+            "SHORT": "Короткий (~800)",
+            "MEDIUM": "Средний (~1000)",
+            "LONG": "Длинный (~2000)"
         }
-        await callback.answer(f"Шаблон: {template_names.get(template, template)}")
+        await callback.answer(f"✅ {template_names.get(template, template)}")
         
         await callback.message.edit_text(
             "⚙️ <b>Настройки</b>\n\nВыберите параметр:",
@@ -308,8 +448,8 @@ async def cb_cancel_action(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("set_time_"))
-async def cb_set_time(callback: CallbackQuery) -> None:
-    """Handle time selection buttons."""
+async def cb_set_time_legacy(callback: CallbackQuery) -> None:
+    """Handle legacy time selection buttons."""
     if not is_admin(callback.from_user.id):
         await answer_unauthorized(callback)
         return
@@ -327,13 +467,278 @@ async def cb_set_time(callback: CallbackQuery) -> None:
         await callback.answer("⚠️ Ошибка", show_alert=True)
 
 
+@router.callback_query(F.data.startswith("set_time:"))
+async def cb_set_time_new(callback: CallbackQuery, state: FSMContext) -> None:
+    """Handle new time selection buttons."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        time_value = callback.data.split(":")[1]
+        
+        if time_value == "custom":
+            # Enter FSM state for custom time input
+            await state.set_state(ScheduleStates.waiting_for_custom_time)
+            await callback.answer()
+            await callback.message.edit_text(
+                "🕐 <b>Своё время постинга</b>\n\n"
+                "Отправьте время в формате ЧЧ:ММ\n"
+                "Например: <code>06:30</code> или <code>11:45</code>\n\n"
+                "Отправьте /cancel для отмены.",
+                parse_mode="HTML"
+            )
+        else:
+            # Direct time selection
+            if len(time_value) == 2:
+                time_value = f"{time_value}:00"
+            
+            await callback.answer(
+                f"⏰ Для изменения времени на {time_value}\n"
+                f"отредактируйте MORNING_POST_TIME в .env файле.",
+                show_alert=True
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_set_time_new: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+# ============================================
+# NEW POST FLOW CALLBACKS (v3)
+# ============================================
+
+@router.callback_query(F.data == "newpost:recipe")
+async def cb_newpost_recipe(callback: CallbackQuery) -> None:
+    """Show recipe category selection."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        
+        await callback.message.edit_text(
+            "🍳 <b>Выберите тип рецепта</b>\n\n"
+            "Бот сгенерирует пост с рецептом выбранной категории:",
+            parse_mode="HTML",
+            reply_markup=recipe_category_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_newpost_recipe: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "newpost:custom")
+async def cb_newpost_custom(callback: CallbackQuery, state: FSMContext) -> None:
+    """Start custom post creation - enter FSM for content input."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        
+        # Store category and enter content input state
+        await state.update_data(category="custom")
+        await state.set_state(NewPostStates.waiting_for_content)
+        
+        await callback.message.edit_text(
+            "✏️ <b>Свой пост</b>\n\n"
+            "Отправьте идею для поста:\n"
+            "• Можете приложить фото 📷\n"
+            "• Или просто текст с описанием\n\n"
+            "<i>Например: «рецепт овсянки с бананом» или «праздник пиццы»</i>\n\n"
+            "Отправьте /cancel для отмены.",
+            parse_mode="HTML"
+        )
+        
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} started custom post flow")
+        
+    except Exception as e:
+        logger.error(f"Error in cb_newpost_custom: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "newpost:back")
+async def cb_newpost_back(callback: CallbackQuery, state: FSMContext) -> None:
+    """Go back to new post category selection."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        # Clear any FSM state
+        await state.clear()
+        await callback.answer()
+        
+        await callback.message.edit_text(
+            "✨ <b>Новый пост</b>\n\n"
+            "Выберите тип поста:",
+            parse_mode="HTML",
+            reply_markup=new_post_category_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_newpost_back: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("recipe:"))
+async def cb_recipe_category(callback: CallbackQuery) -> None:
+    """Handle recipe category selection and generate post."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        category = callback.data.split(":")[1]
+        
+        category_names = {
+            "pp": "ПП",
+            "keto": "Кето",
+            "vegan": "Веган",
+            "detox": "Детокс",
+            "breakfast": "Завтраки",
+            "dessert": "ПП-десерты",
+            "smoothie": "Смузи",
+            "soup": "Супы"
+        }
+        
+        category_name = category_names.get(category, category)
+        
+        await callback.answer(f"🍳 Генерирую {category_name} рецепт...")
+        
+        update_user_activity(
+            user_id=callback.from_user.id,
+            first_name=callback.from_user.first_name,
+            username=callback.from_user.username,
+            action=f"recipe_{category}"
+        )
+        
+        await callback.message.edit_text(
+            f"⏳ <b>Генерирую {category_name} рецепт...</b>\n\n"
+            f"Это может занять 1-2 минуты.",
+            parse_mode="HTML"
+        )
+        
+        # Generate recipe post
+        from services.post_service import post_to_channel
+        
+        success, post_id = await post_to_channel(
+            bot=callback.bot,
+            channel_id=config.channel_id,
+            preview_mode=True,
+            admin_id=callback.from_user.id,
+            recipe_category=category
+        )
+        
+        if success and post_id:
+            try:
+                await callback.message.delete()
+            except:
+                pass
+            logger.info(f"Recipe post ({category}) generated: {post_id}")
+        else:
+            await callback.message.edit_text(
+                f"❌ <b>Не удалось сгенерировать {category_name} рецепт</b>\n\n"
+                f"Попробуйте позже.",
+                parse_mode="HTML",
+                reply_markup=recipe_category_keyboard()
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_recipe_category: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+# ============================================
+# NEW POST PROMPT CALLBACKS
+# ============================================
+
+@router.callback_query(F.data == "newpost_prompt:custom")
+async def cb_newpost_prompt_custom(callback: CallbackQuery, state: FSMContext) -> None:
+    """User wants to provide custom prompt."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        await state.set_state(NewPostStates.waiting_for_prompt)
+        
+        await callback.message.edit_text(
+            "✏️ <b>Введите промпт</b>\n\n"
+            "Опишите, что именно должно быть в посте.\n"
+            "Бот учтёт ваши пожелания при генерации.\n\n"
+            "Отправьте /cancel для отмены.",
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_newpost_prompt_custom: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "newpost_prompt:auto")
+async def cb_newpost_prompt_auto(callback: CallbackQuery, state: FSMContext) -> None:
+    """User chose automatic generation."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer("⏳ Генерирую...")
+        
+        # Get stored data and generate
+        data = await state.get_data()
+        category = data.get("category", "pp")
+        user_idea = data.get("user_idea", "")
+        
+        await state.clear()
+        
+        await callback.message.edit_text(
+            "⏳ <b>Генерирую пост...</b>\n\n"
+            "Это может занять 1-2 минуты.",
+            parse_mode="HTML"
+        )
+        
+        from services.post_service import post_to_channel
+        
+        success, post_id = await post_to_channel(
+            bot=callback.bot,
+            channel_id=config.channel_id,
+            preview_mode=True,
+            admin_id=callback.from_user.id,
+            recipe_category=category,
+            custom_idea=user_idea if user_idea else None
+        )
+        
+        if success and post_id:
+            try:
+                await callback.message.delete()
+            except:
+                pass
+            logger.info(f"Auto post generated: {post_id}")
+        else:
+            await callback.message.edit_text(
+                "❌ Не удалось сгенерировать пост. Попробуйте позже.",
+                parse_mode="HTML"
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in cb_newpost_prompt_auto: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
 # ============================================
 # TEST CALLBACKS
 # ============================================
 
 @router.callback_query(F.data == "test_holidays")
 async def cb_test_holidays(callback: CallbackQuery) -> None:
-    """Handle 'Тест праздников' button - test holidays API."""
+    """Handle 'Тест праздников' button - test holidays from JSON."""
     if not is_admin(callback.from_user.id):
         await answer_unauthorized(callback)
         return
@@ -350,11 +755,11 @@ async def cb_test_holidays(callback: CallbackQuery) -> None:
         
         # Show loading state
         await callback.message.edit_text(
-            "🔍 <b>Загружаю праздники...</b>\n\nЭто может занять несколько секунд.",
+            "🔍 <b>Загружаю праздники...</b>",
             parse_mode="HTML"
         )
         
-        # Fetch holidays
+        # Fetch holidays from JSON
         from services.holidays_api import fetch_holidays_for_date
         today = date.today()
         holidays = await fetch_holidays_for_date(today)
@@ -362,38 +767,31 @@ async def cb_test_holidays(callback: CallbackQuery) -> None:
         if holidays:
             holidays_text = f"🎉 <b>Праздники на {today.strftime('%d.%m.%Y')}:</b>\n\n"
             
-            for i, holiday in enumerate(holidays[:10], 1):
+            for i, holiday in enumerate(holidays[:5], 1):
                 name = holiday.get("name", "Без названия")
                 holidays_text += f"{i}. {name}\n"
             
-            holidays_text += f"\n✅ <b>Всего найдено:</b> {len(holidays)} праздников"
-            holidays_text += f"\n\n<i>API работает корректно!</i>"
+            if len(holidays) > 5:
+                holidays_text += f"\n... и ещё {len(holidays) - 5}"
+            
+            holidays_text += f"\n\n✅ <b>Всего:</b> {len(holidays)} праздников"
         else:
-            holidays_text = """
-❌ <b>Праздники не найдены</b>
-
-Возможные причины:
-• API ключ не настроен
-• Нет праздников на сегодня
-• Проблема с подключением
-
-<i>Бот использует fallback через GPT-4o mini</i>
-"""
+            holidays_text = "❌ <b>Праздники не найдены</b>\n\nПроверьте файл data/food_holidays.json"
         
         await callback.message.edit_text(
             holidays_text,
             parse_mode="HTML",
-            reply_markup=back_keyboard()
+            reply_markup=neural_tests_keyboard()
         )
         
-        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} tested holidays API: {len(holidays)} found")
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} tested holidays: {len(holidays) if holidays else 0} found")
         
     except Exception as e:
         logger.error(f"Error in cb_test_holidays: {e}", exc_info=True)
         await callback.message.edit_text(
-            f"⚠️ <b>Ошибка при тестировании:</b>\n\n{str(e)[:200]}",
+            f"⚠️ <b>Ошибка:</b>\n\n{str(e)[:200]}",
             parse_mode="HTML",
-            reply_markup=back_keyboard()
+            reply_markup=neural_tests_keyboard()
         )
 
 
@@ -729,7 +1127,7 @@ async def cb_publish_new(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("edit:"))
-async def cb_edit_post(callback: CallbackQuery) -> None:
+async def cb_edit_post(callback: CallbackQuery, state: FSMContext) -> None:
     """Handle '✏️ Редактировать' button - start editing post text."""
     if not is_admin(callback.from_user.id):
         await answer_unauthorized(callback)
@@ -746,16 +1144,37 @@ async def cb_edit_post(callback: CallbackQuery) -> None:
             await callback.answer("Пост не найден", show_alert=True)
             return
         
-        # TODO: Set FSM state for editing
-        await callback.answer()
-        await callback.message.answer(
-            "✏️ <b>Режим редактирования</b>\n\n"
-            "Отправьте новый текст поста целиком.\n"
-            "Текущий текст будет заменён.\n\n"
-            "<i>Для отмены нажмите кнопку ниже.</i>",
-            parse_mode="HTML",
-            reply_markup=editing_keyboard()
-        )
+        # Check if multi-post
+        is_multipost = post_data.get("is_multipost", False)
+        total_parts = post_data.get("total_parts", 1)
+        
+        if is_multipost and total_parts > 1:
+            # Ask which part to edit
+            await state.update_data(editing_post_id=post_id, total_parts=total_parts)
+            await state.set_state(EditPostStates.selecting_part)
+            
+            await callback.answer()
+            await callback.message.answer(
+                f"✏️ <b>Редактирование мульти-поста</b>\n\n"
+                f"Пост разделён на {total_parts} части.\n"
+                f"Введите номер части для редактирования (1-{total_parts}):\n\n"
+                f"Отправьте /cancel для отмены.",
+                parse_mode="HTML"
+            )
+        else:
+            # Single post - direct edit
+            await state.update_data(editing_post_id=post_id)
+            await state.set_state(EditPostStates.waiting_for_new_text)
+            
+            await callback.answer()
+            await callback.message.answer(
+                "✏️ <b>Режим редактирования</b>\n\n"
+                "Отправьте новый текст поста целиком.\n"
+                "Текущий текст будет заменён.\n\n"
+                "Отправьте /cancel для отмены.",
+                parse_mode="HTML",
+                reply_markup=editing_keyboard()
+            )
         
         logger.info(f"Editing started for post {post_id}")
         

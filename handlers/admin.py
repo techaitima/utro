@@ -156,34 +156,27 @@ async def cmd_status(message: Message) -> None:
             if last_post_status["error"]:
                 last_post_result += f"\n   └ {last_post_status['error'][:100]}"
         else:
-            last_post_time = "Нет данных"
-            last_post_result = "Нет данных"
+            last_post_time = "—"
+            last_post_result = "—"
         
-        # User stats
-        from services.user_service import get_all_users_count
-        total_users = get_all_users_count()
+        # Settings status
+        from services.settings_service import get_settings, ImageModel
+        settings = get_settings()
+        img_status = "вкл" if settings.image_enabled else "выкл"
+        model_name = "DALL-E 3" if settings.image_model == ImageModel.DALLE3.value else "Flux"
         
         status_text = f"""
 📊 <b>Статус бота</b>
 
-<b>⏱ Аптайм:</b> {uptime_str}
-<b>🕐 Время запуска:</b> {bot_start_time.strftime("%d.%m.%Y %H:%M:%S")}
+<b>📅 Автопост:</b> {config.morning_post_time} (МСК)
+<b>⏳ Через:</b> {hours_until}ч {minutes_until}м
 
-<b>📅 Следующий пост:</b>
-• Время: {next_post.strftime("%d.%m.%Y %H:%M")} (МСК)
-• Через: {hours_until}ч {minutes_until}м
+<b>📤 Последний пост:</b> {last_post_result}
 
-<b>📤 Последний пост:</b>
-• Время: {last_post_time}
-• Результат: {last_post_result}
-
-<b>⚙️ Конфигурация:</b>
-• Канал: {config.channel_id}
-• Timezone: {config.timezone}
-• Время поста: {config.morning_post_time}
-• Админов: {len(config.admin_user_ids)}
-• Пользователей: {total_users}
-• Holidays API: {"✅" if config.holidays_api_key else "❌"}
+<b>⚙️ Настройки:</b>
+• 🖼 Изображения: {img_status}
+• 🎨 Модель: {model_name}
+• 📝 Шаблон: {settings.text_template}
 """
         await message.answer(
             status_text, 

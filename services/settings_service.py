@@ -43,6 +43,7 @@ class BotSettings:
     # Template settings
     text_template: str = TextTemplate.MEDIUM.value
     custom_template: str = ""
+    custom_length: int = 1500  # Custom post length in characters
     
     # Image settings
     image_enabled: bool = True
@@ -55,6 +56,9 @@ class BotSettings:
     
     # Recipe settings
     recipe_type: str = RecipeType.PP.value
+    
+    # Schedule settings
+    custom_schedule_time: str = ""  # User's preferred time (HH:MM)
     
     # Flux API settings (if using Flux)
     flux_api_key: str = ""
@@ -212,20 +216,26 @@ def get_channel_signature(channel_id: str = "") -> str:
 
 # Template length limits (in characters)
 TEMPLATE_LIMITS = {
-    TextTemplate.SHORT.value: 800,   # Short - always fits in caption
-    TextTemplate.MEDIUM.value: 1024,  # Medium - Telegram caption limit
-    TextTemplate.LONG.value: 4096,    # Long - can split into multiple messages
-    TextTemplate.CUSTOM.value: 4096   # Custom - user defines
+    TextTemplate.SHORT.value: 800,    # Short - compact post
+    TextTemplate.MEDIUM.value: 1000,  # Medium - standard post
+    TextTemplate.LONG.value: 2000,    # Long - detailed post
+    TextTemplate.CUSTOM.value: 4000   # Custom - user defines (max)
 }
 
 
 def get_template_limit() -> int:
     """Get character limit for current template."""
     settings = get_settings()
-    return TEMPLATE_LIMITS.get(settings.text_template, 1024)
+    
+    # If custom template, use user's custom_length
+    if settings.text_template == TextTemplate.CUSTOM.value:
+        return settings.custom_length if settings.custom_length > 0 else 1500
+    
+    return TEMPLATE_LIMITS.get(settings.text_template, 1000)
 
 
 def should_split_post() -> bool:
-    """Check if posts should be split (only for LONG template)."""
+    """Check if posts should be split (for LONG or large CUSTOM templates)."""
     settings = get_settings()
-    return settings.text_template == TextTemplate.LONG.value
+    limit = get_template_limit()
+    return limit > 1000

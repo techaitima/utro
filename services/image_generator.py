@@ -11,6 +11,7 @@ from typing import Optional
 from openai import AsyncOpenAI
 
 from config import config
+from services.api_safety import api_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ async def generate_food_image(
     
     for attempt in range(1, max_retries + 1):
         try:
+            # Check rate limits before making API call
+            await api_rate_limiter.check_rate_limit("dalle")
+            
             logger.info(f"Generating image for '{recipe_name}' (attempt {attempt}/{max_retries})")
             
             # Generate image with DALL-E 3

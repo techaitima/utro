@@ -11,6 +11,7 @@ from typing import List, Dict, Optional
 from functools import lru_cache
 
 from config import config
+from services.api_safety import api_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,9 @@ async def fetch_holidays_for_date(target_date: date) -> List[Dict]:
     all_holidays = []
     
     try:
+        # Check rate limits before making API call
+        await api_rate_limiter.check_rate_limit("calendarific")
+        
         # Fetch Russian holidays
         ru_holidays = await _fetch_from_calendarific(target_date, "RU")
         all_holidays.extend(ru_holidays)

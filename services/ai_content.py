@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Any
 from openai import AsyncOpenAI
 
 from config import config
+from services.api_safety import safe_api_call, api_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,9 @@ def _get_weekday_russian(target_date: date) -> str:
 async def generate_post_content(
     target_date: date,
     holidays: List[Dict],
-    quote: Dict
+    quote: Dict,
+    recipe_category: Optional[str] = None,
+    custom_idea: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Generate complete post content using GPT-4o mini.
@@ -129,6 +132,8 @@ async def generate_post_content(
         target_date: Date for the post
         holidays: List of holiday dictionaries from API
         quote: Quote dictionary with 'text' and 'author' keys
+        recipe_category: Optional recipe category (pp, keto, vegan, etc.)
+        custom_idea: Optional user's custom idea for the post
     
     Returns:
         Dictionary with greeting, holiday_text, and recipe
@@ -144,6 +149,28 @@ async def generate_post_content(
     else:
         holidays_list = "- Сегодня нет особых кулинарных праздников, но это не повод не приготовить что-то вкусное!"
     
+    # Recipe type instruction based on category
+    recipe_types = {
+        "pp": "ПП (правильное питание) - низкокалорийный, сбалансированный",
+        "keto": "Кето - высокожировой, без углеводов, максимум 5г углеводов",
+        "vegan": "Веганский - без продуктов животного происхождения",
+        "detox": "Детокс - легкий, очищающий, на овощах и зелени",
+        "breakfast": "Полезный завтрак - энергичный старт дня",
+        "dessert": "ПП-десерт - сладкий но полезный, без сахара",
+        "smoothie": "Смузи - витаминный напиток из фруктов/овощей",
+        "soup": "Полезный суп - сытный и согревающий"
+    }
+    
+    recipe_instruction = recipe_types.get(recipe_category, "ПП (правильное питание)")
+    
+    # Check rate limits before making API call
+    await api_rate_limiter.check_rate_limit("openai")
+    
+    # Add custom idea if provided
+    custom_section = ""
+    if custom_idea:
+        custom_section = f"\n\nИДЕЯ АДМИНИСТРАТОРА (учти при создании поста):\n{custom_idea}\n"
+    
     # Create user prompt
     user_prompt = f"""Создай пост для {_format_date_russian(target_date)} ({_get_weekday_russian(target_date)}).
 
@@ -152,10 +179,12 @@ async def generate_post_content(
 Праздники сегодня:
 {holidays_list}
 
+Тип рецепта: {recipe_instruction}{custom_section}
+
 Создай уникальный пост с:
 1. Оригинальным приветствием (1-2 предложения с эмодзи)
 2. Описанием 3-х КУЛИНАРНЫХ праздников с краткими интересными фактами
-3. ПП-рецептом по теме одного из праздников
+3. Рецептом типа "{recipe_instruction}" по теме одного из праздников
 
 ⚠️ ВАЖНО по подсластителям:
 - Стевия в 200-300 раз слаще сахара! Используй КАПЛИ (3-5 капель = 1 ст.л. сахара)

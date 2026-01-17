@@ -30,6 +30,10 @@ QUOTES_FILE = Path(__file__).parent.parent / "data" / "quotes.json"
 # Temporary storage for preview posts (post_id -> post_data)
 _pending_posts: Dict[str, Dict[str, Any]] = {}
 
+# Multi-post configuration
+MULTIPOST_THRESHOLD = 1000  # Characters threshold for splitting
+MULTIPOST_TARGET_LENGTH = 850  # Target length per part
+
 # Weekday mapping for quotes.json keys
 WEEKDAY_KEYS = {
     0: "monday",
@@ -79,7 +83,75 @@ def _get_quote_for_weekday(weekday: int) -> Dict[str, str]:
     }
 
 
-def _format_post_text(
+def split_post_into_parts(text: str, max_length: int = MULTIPOST_TARGET_LENGTH) -> list[str]:
+    """
+    Split long post text into multiple parts.
+    
+    Splits by paragraphs first, then by sentences if needed.
+    Each part gets a number suffix like "(1/3)".
+    
+    Args:
+        text: Full post text
+        max_length: Maximum length per part
+        
+    Returns:
+        List of text parts with numbering
+    """
+    if len(text) <= MULTIPOST_THRESHOLD:
+        return [text]
+    
+    # Split by double newlines (paragraphs)
+    paragraphs = text.split("\n\n")
+    
+    parts = []
+    current_part = ""
+    
+    for para in paragraphs:
+        # Check if adding this paragraph exceeds limit
+        test_text = current_part + ("\n\n" if current_part else "") + para
+        
+        if len(test_text) <= max_length:
+            current_part = test_text
+        else:
+            # Current part is full, save it
+            if current_part:
+                parts.append(current_part)
+            
+            # Start new part
+            if len(para) <= max_length:
+                current_part = para
+            else:
+                # Paragraph is too long, split by sentences
+                sentences = split_by_sentences(para)
+                for sent in sentences:
+                    if len(current_part) + len(sent) + 2 <= max_length:
+                        current_part += (" " if current_part else "") + sent
+                    else:
+                        if current_part:
+                            parts.append(current_part)
+                        current_part = sent
+    
+    # Don't forget the last part
+    if current_part:
+        parts.append(current_part)
+    
+    # Add numbering to each part
+    total = len(parts)
+    if total > 1:
+        numbered_parts = []
+        for i, part in enumerate(parts, 1):
+            numbered_parts.append(f"{part}\n\n<i>({i}/{total})</i>")
+        return numbered_parts
+    
+    return parts
+
+
+def split_by_sentences(text: str) -> list[str]:
+    """Split text into sentences."""
+    import re
+    # Split on . ! ? followed by space or end
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    return [s for s in sentences if s.strip()]
     target_date: date,
     quote: Dict[str, str],
     content: Dict[str, Any],
@@ -190,10 +262,17 @@ def _format_post_text(
 
 
 async def generate_post_data(
-    max_retries: int = 3
+    max_retries: int = 3,
+    recipe_category: Optional[str] = None,
+    custom_idea: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Generate post content and image without publishing.
+    
+    Args:
+        max_retries: Maximum retry attempts
+        recipe_category: Optional recipe category (pp, keto, vegan, etc.)
+        custom_idea: Optional user's custom idea for post content
     
     Returns:
         Dictionary with post_text, image_bytes, content, quote, date
@@ -217,9 +296,13 @@ async def generate_post_data(
             quote = _get_quote_for_weekday(today.weekday())
             logger.info(f"Selected quote by {quote['author']}")
             
-            # Step 4: Generate AI content
+            # Step 4: Generate AI content (with optional recipe category and custom idea)
             logger.info("Generating AI content...")
-            content = await generate_post_content(today, holidays, quote)
+            content = await generate_post_content(
+                today, holidays, quote, 
+                recipe_category=recipe_category,
+                custom_idea=custom_idea
+            )
             logger.info(f"Generated recipe: {content['recipe']['name']}")
             
             # Step 5: Format post text
@@ -312,6 +395,7 @@ async def send_preview_to_admin(
 ) -> bool:
     """
     Send post preview to admin with action buttons.
+    Handles multi-part posts.
     
     Args:
         bot: Aiogram Bot instance
@@ -326,29 +410,76 @@ async def send_preview_to_admin(
         post_text = post_data.get("post_text", "")
         image_bytes = post_data.get("image_bytes")
         
+        # Check if we need to split the post
+        parts = split_post_into_parts(post_text)
+        is_multipost = len(parts) > 1
+        
+        # Store parts info in post_data
+        if is_multipost:
+            post_data["parts"] = parts
+            post_data["is_multipost"] = True
+            post_data["total_parts"] = len(parts)
+        
         preview_header = "📝 <b>Предпросмотр поста:</b>\n\n"
-        full_text = preview_header + post_text
         
-        # Truncate if too long for caption (max 1024 chars)
-        if len(full_text) > 1024:
-            full_text = full_text[:1020] + "..."
-        
-        if image_bytes:
-            photo = BufferedInputFile(image_bytes, filename="preview.jpg")
-            await bot.send_photo(
-                chat_id=admin_id,
-                photo=photo,
-                caption=full_text,
-                parse_mode="HTML",
-                reply_markup=reply_markup
-            )
+        if is_multipost:
+            # Send each part as separate message
+            for i, part in enumerate(parts):
+                is_first = i == 0
+                is_last = i == len(parts) - 1
+                
+                part_text = preview_header + part if is_first else part
+                
+                # Only send image with first part
+                if is_first and image_bytes:
+                    # Truncate if too long for caption
+                    if len(part_text) > 1024:
+                        part_text = part_text[:1020] + "..."
+                    
+                    photo = BufferedInputFile(image_bytes, filename="preview.jpg")
+                    await bot.send_photo(
+                        chat_id=admin_id,
+                        photo=photo,
+                        caption=part_text,
+                        parse_mode="HTML"
+                    )
+                else:
+                    await bot.send_message(
+                        chat_id=admin_id,
+                        text=part_text,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup if is_last else None
+                    )
+                
+                # Small delay between parts
+                if not is_last:
+                    await asyncio.sleep(0.5)
+            
+            logger.info(f"Multi-part preview ({len(parts)} parts) sent to admin")
         else:
-            await bot.send_message(
-                chat_id=admin_id,
-                text=full_text,
-                parse_mode="HTML",
-                reply_markup=reply_markup
-            )
+            # Single post - original logic
+            full_text = preview_header + post_text
+            
+            # Truncate if too long for caption (max 1024 chars)
+            if len(full_text) > 1024:
+                full_text = full_text[:1020] + "..."
+            
+            if image_bytes:
+                photo = BufferedInputFile(image_bytes, filename="preview.jpg")
+                await bot.send_photo(
+                    chat_id=admin_id,
+                    photo=photo,
+                    caption=full_text,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
+            else:
+                await bot.send_message(
+                    chat_id=admin_id,
+                    text=full_text,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
         
         logger.info(f"Preview sent to admin {mask_user_id(admin_id, config.debug_mode)}")
         return True
@@ -365,6 +496,7 @@ async def publish_pending_post(
 ) -> bool:
     """
     Publish a pending post to channel.
+    Handles multi-part posts with delays.
     
     Args:
         bot: Aiogram Bot instance
@@ -380,23 +512,57 @@ async def publish_pending_post(
         return False
     
     try:
-        post_text = post_data.get("post_text", "")
         image_bytes = post_data.get("image_bytes")
+        is_multipost = post_data.get("is_multipost", False)
+        parts = post_data.get("parts", [])
         
-        if image_bytes:
-            photo = BufferedInputFile(image_bytes, filename="recipe.jpg")
-            await bot.send_photo(
-                chat_id=channel_id,
-                photo=photo,
-                caption=post_text,
-                parse_mode="HTML"
-            )
+        if is_multipost and parts:
+            # Publish multi-part post
+            for i, part in enumerate(parts):
+                is_first = i == 0
+                is_last = i == len(parts) - 1
+                
+                if is_first and image_bytes:
+                    # First part with image
+                    if len(part) > 1024:
+                        part = part[:1020] + "..."
+                    photo = BufferedInputFile(image_bytes, filename="recipe.jpg")
+                    await bot.send_photo(
+                        chat_id=channel_id,
+                        photo=photo,
+                        caption=part,
+                        parse_mode="HTML"
+                    )
+                else:
+                    await bot.send_message(
+                        chat_id=channel_id,
+                        text=part,
+                        parse_mode="HTML"
+                    )
+                
+                # Delay between parts (except after last)
+                if not is_last:
+                    await asyncio.sleep(1.5)
+            
+            logger.info(f"Published multi-part post ({len(parts)} parts) to channel")
         else:
-            await bot.send_message(
-                chat_id=channel_id,
-                text=post_text,
-                parse_mode="HTML"
-            )
+            # Single post
+            post_text = post_data.get("post_text", "")
+            
+            if image_bytes:
+                photo = BufferedInputFile(image_bytes, filename="recipe.jpg")
+                await bot.send_photo(
+                    chat_id=channel_id,
+                    photo=photo,
+                    caption=post_text,
+                    parse_mode="HTML"
+                )
+            else:
+                await bot.send_message(
+                    chat_id=channel_id,
+                    text=post_text,
+                    parse_mode="HTML"
+                )
         
         # Remove from pending after successful publish
         remove_pending_post(post_id)
@@ -415,7 +581,9 @@ async def post_to_channel(
     retry_delay: int = 300,
     preview_mode: bool = False,
     admin_id: Optional[int] = None,
-    reply_markup: Optional[InlineKeyboardMarkup] = None
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    recipe_category: Optional[str] = None,
+    custom_idea: Optional[str] = None
 ) -> Tuple[bool, Optional[str]]:
     """
     Generate and post content to the Telegram channel.
@@ -428,13 +596,19 @@ async def post_to_channel(
         preview_mode: If True, send preview to admin instead of publishing
         admin_id: Admin user ID for preview (required if preview_mode=True)
         reply_markup: Keyboard for preview message
+        recipe_category: Optional recipe category (pp, keto, vegan, etc.)
+        custom_idea: Optional user's custom idea for post
     
     Returns:
         Tuple of (success: bool, post_id: Optional[str])
         post_id is returned only in preview_mode
     """
     # Generate post data
-    post_data = await generate_post_data(max_retries=max_retries)
+    post_data = await generate_post_data(
+        max_retries=max_retries, 
+        recipe_category=recipe_category,
+        custom_idea=custom_idea
+    )
     
     if not post_data:
         return (False, None)
