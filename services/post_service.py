@@ -309,7 +309,7 @@ async def generate_post_data(
             logger.info(f"Generated recipe: {content['recipe']['name']}")
             
             # Step 5: Format post text
-            post_text = _format_post_text(today, quote, content)
+            post_text = format_post_text(today, quote, content)
             logger.info(f"Post text formatted ({len(post_text)} chars)")
             
             # Step 6: Generate image

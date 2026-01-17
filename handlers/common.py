@@ -283,8 +283,9 @@ async def btn_settings(message: Message) -> None:
             action="btn_settings"
         )
         
-        from services.settings_service import settings
+        from services.settings_service import get_settings
         
+        settings = get_settings()
         img_status = "вкл" if settings.image_enabled else "выкл"
         model_name = settings.image_model.value
         template_name = settings.text_template.value
