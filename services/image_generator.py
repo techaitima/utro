@@ -11,7 +11,7 @@ from typing import Optional
 from openai import AsyncOpenAI
 
 from config import config
-from services.api_safety import api_rate_limiter
+from services.api_safety import get_rate_limiter
 
 logger = logging.getLogger(__name__)
 

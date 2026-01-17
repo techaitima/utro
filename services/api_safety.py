@@ -186,6 +186,10 @@ def get_rate_limiter(name: str) -> APIRateLimiter:
     return _rate_limiters[name]
 
 
+# Global rate limiter instance for easy access
+api_rate_limiter = get_rate_limiter("global")
+
+
 class RateLimitExceeded(Exception):
     """Raised when rate limit is exceeded."""
     pass

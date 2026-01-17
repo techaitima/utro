@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Any
 from openai import AsyncOpenAI
 
 from config import config
-from services.api_safety import safe_api_call, api_rate_limiter
+from services.api_safety import safe_api_call, get_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +164,7 @@ async def generate_post_content(
     recipe_instruction = recipe_types.get(recipe_category, "ПП (правильное питание)")
     
     # Check rate limits before making API call
-    await api_rate_limiter.check_rate_limit("openai")
+    await get_rate_limiter("openai").check_rate_limit()
     
     # Add custom idea if provided
     custom_section = ""
