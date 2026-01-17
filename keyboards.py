@@ -1,6 +1,7 @@
 """
 Keyboards for the Utro Bot.
 Contains both Reply and Inline keyboards.
+Updated with template, model selection, and image-from-photo features.
 """
 
 from aiogram.types import (
@@ -10,6 +11,8 @@ from aiogram.types import (
     InlineKeyboardButton,
     ReplyKeyboardRemove
 )
+
+from services.settings_service import get_settings, TextTemplate, ImageModel
 
 
 # ============================================
@@ -24,11 +27,14 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="📨 Пост сейчас"),
+                KeyboardButton(text="📅 Сегодня"),
                 KeyboardButton(text="📊 Статус")
             ],
             [
-                KeyboardButton(text="⚙️ Настройки"),
+                KeyboardButton(text="🖼 Пост из фото"),
+                KeyboardButton(text="⚙️ Настройки")
+            ],
+            [
                 KeyboardButton(text="ℹ️ Помощь")
             ]
         ],
@@ -36,6 +42,22 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
         input_field_placeholder="Выберите действие..."
     )
     return keyboard
+
+
+def cancel_keyboard() -> ReplyKeyboardMarkup:
+    """Cancel button keyboard."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Отмена")]],
+        resize_keyboard=True
+    )
+
+
+def editing_keyboard() -> ReplyKeyboardMarkup:
+    """Keyboard for editing mode with cancel button."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Отмена редактирования")]],
+        resize_keyboard=True
+    )
 
 
 def remove_keyboard() -> ReplyKeyboardRemove:
@@ -50,10 +72,41 @@ def remove_keyboard() -> ReplyKeyboardRemove:
 def settings_keyboard() -> InlineKeyboardMarkup:
     """
     Create settings inline keyboard.
-    Contains testing options and schedule settings.
+    Shows current settings values and options to change them.
     """
+    settings = get_settings()
+    
+    # Format current values for display
+    img_status = "✅ Вкл" if settings.image_enabled else "❌ Выкл"
+    model_name = "DALL-E 3" if settings.image_model == ImageModel.DALLE3.value else "Flux"
+    template_names = {
+        TextTemplate.SHORT.value: "Короткий",
+        TextTemplate.MEDIUM.value: "Средний",
+        TextTemplate.LONG.value: "Длинный",
+        TextTemplate.CUSTOM.value: "Кастомный"
+    }
+    template_name = template_names.get(settings.text_template, "Средний")
+    
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"🖼 Изображения: {img_status}", 
+                    callback_data="settings:image_toggle"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"🎨 Модель: {model_name}", 
+                    callback_data="settings:model_select"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"📝 Шаблон: {template_name}", 
+                    callback_data="settings:template_select"
+                )
+            ],
             [
                 InlineKeyboardButton(text="⏰ Расписание", callback_data="schedule")
             ],
@@ -62,17 +115,101 @@ def settings_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🎉 Тест праздников", callback_data="test_holidays")
             ],
             [
-                InlineKeyboardButton(text="🤖 Тест GPT-4o mini", callback_data="test_gpt")
-            ],
-            [
-                InlineKeyboardButton(text="📈 Моя статистика", callback_data="my_stats")
-            ],
-            [
                 InlineKeyboardButton(text="🔙 Назад", callback_data="back_main")
             ]
         ]
     )
     return keyboard
+
+
+def model_select_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for selecting image generation model."""
+    settings = get_settings()
+    
+    dalle_check = "✅ " if settings.image_model == ImageModel.DALLE3.value else ""
+    flux_check = "✅ " if settings.image_model == ImageModel.FLUX.value else ""
+    
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"{dalle_check}DALL-E 3 (OpenAI)", 
+                    callback_data="model:DALLE3"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"{flux_check}Flux (Together AI)", 
+                    callback_data="model:FLUX"
+                )
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data="back_settings")
+            ]
+        ]
+    )
+
+
+def template_select_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for selecting text template."""
+    settings = get_settings()
+    
+    def check(t): 
+        return "✅ " if settings.text_template == t else ""
+    
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"{check(TextTemplate.SHORT.value)}📄 Короткий (~800)", 
+                    callback_data="template:SHORT"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"{check(TextTemplate.MEDIUM.value)}📃 Средний (~1024)", 
+                    callback_data="template:MEDIUM"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"{check(TextTemplate.LONG.value)}📜 Длинный (~4096)", 
+                    callback_data="template:LONG"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"{check(TextTemplate.CUSTOM.value)}✏️ Кастомный", 
+                    callback_data="template:CUSTOM"
+                )
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data="back_settings")
+            ]
+        ]
+    )
+
+
+def image_category_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for selecting recipe category when creating post from image."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🥗 ПП", callback_data="cat:pp"),
+                InlineKeyboardButton(text="🥑 Кето", callback_data="cat:keto")
+            ],
+            [
+                InlineKeyboardButton(text="👨‍🍳 Кулинария", callback_data="cat:culinary")
+            ],
+            [
+                InlineKeyboardButton(text="🍳 Завтраки", callback_data="cat:breakfast"),
+                InlineKeyboardButton(text="🍰 Десерты", callback_data="cat:dessert")
+            ],
+            [
+                InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_action")
+            ]
+        ]
+    )
 
 
 def back_keyboard() -> InlineKeyboardMarkup:
@@ -102,28 +239,35 @@ def confirm_post_keyboard() -> InlineKeyboardMarkup:
 
 def preview_post_keyboard(post_id: str = "") -> InlineKeyboardMarkup:
     """
-    Create keyboard for post preview with publish/cancel/regenerate buttons.
+    Create keyboard for post preview with publish/edit/regenerate/cancel buttons.
     All text in Russian.
     
     Args:
         post_id: Optional post identifier for callback data
     """
+    pid = post_id or "0"
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Опубликовать в канал", 
-                    callback_data=f"publish_post:{post_id}" if post_id else "publish_post"
+                    text="✅ Опубликовать", 
+                    callback_data=f"publish:{pid}"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="🔄 Регенерировать", 
-                    callback_data=f"regenerate_post:{post_id}" if post_id else "regenerate_post"
+                    text="✏️ Редактировать", 
+                    callback_data=f"edit:{pid}"
                 ),
                 InlineKeyboardButton(
+                    text="🔄 Заново", 
+                    callback_data=f"regenerate:{pid}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="❌ Отменить", 
-                    callback_data=f"cancel_preview:{post_id}" if post_id else "cancel_preview"
+                    callback_data=f"cancel:{pid}"
                 )
             ]
         ]

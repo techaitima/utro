@@ -14,9 +14,18 @@ from keyboards import (
     main_menu_keyboard, 
     settings_keyboard, 
     schedule_keyboard,
-    back_keyboard
+    back_keyboard,
+    model_select_keyboard,
+    template_select_keyboard,
+    preview_post_keyboard
 )
 from services.user_service import update_user_activity, format_user_stats
+from services.settings_service import (
+    get_settings, 
+    update_settings, 
+    TextTemplate, 
+    ImageModel
+)
 from utils.logger import mask_user_id, mask_channel_id
 
 logger = logging.getLogger(__name__)
@@ -145,6 +154,157 @@ async def cb_schedule(callback: CallbackQuery) -> None:
     except Exception as e:
         logger.error(f"Error in cb_schedule: {e}", exc_info=True)
         await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+# ============================================
+# NEW SETTINGS CALLBACKS (v2)
+# ============================================
+
+@router.callback_query(F.data == "settings:image_toggle")
+async def cb_image_toggle(callback: CallbackQuery) -> None:
+    """Toggle image generation on/off."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        settings = get_settings()
+        new_value = not settings.image_enabled
+        update_settings(image_enabled=new_value)
+        
+        status = "✅ Включены" if new_value else "❌ Выключены"
+        await callback.answer(f"Изображения: {status}")
+        
+        await callback.message.edit_reply_markup(reply_markup=settings_keyboard())
+        
+    except Exception as e:
+        logger.error(f"Error in cb_image_toggle: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "settings:model_select")
+async def cb_model_select(callback: CallbackQuery) -> None:
+    """Show model selection menu."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        
+        await callback.message.edit_text(
+            "🎨 <b>Выбор модели генерации изображений</b>\n\n"
+            "• <b>DALL-E 3</b> — Высокое качество, OpenAI\n"
+            "• <b>Flux</b> — Быстрая генерация, Together AI\n\n"
+            "Выберите модель:",
+            parse_mode="HTML",
+            reply_markup=model_select_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_model_select: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("model:"))
+async def cb_select_model(callback: CallbackQuery) -> None:
+    """Handle model selection."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        model = callback.data.split(":")[1]
+        update_settings(image_model=model)
+        
+        model_name = "DALL-E 3" if model == ImageModel.DALLE3.value else "Flux"
+        await callback.answer(f"Модель: {model_name}")
+        
+        await callback.message.edit_text(
+            "⚙️ <b>Настройки</b>\n\nВыберите параметр:",
+            parse_mode="HTML",
+            reply_markup=settings_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_select_model: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "settings:template_select")
+async def cb_template_select(callback: CallbackQuery) -> None:
+    """Show template selection menu."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        
+        await callback.message.edit_text(
+            "📝 <b>Выбор шаблона текста</b>\n\n"
+            "• <b>Короткий</b> (~800 символов) — Компактный пост\n"
+            "• <b>Средний</b> (~1024 символа) — Стандартный пост\n"
+            "• <b>Длинный</b> (~4096 символов) — Подробный пост\n"
+            "• <b>Кастомный</b> — Ваш собственный шаблон\n\n"
+            "Выберите шаблон:",
+            parse_mode="HTML",
+            reply_markup=template_select_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_template_select: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("template:"))
+async def cb_select_template(callback: CallbackQuery) -> None:
+    """Handle template selection."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        template = callback.data.split(":")[1]
+        
+        # TODO: Handle CUSTOM template input via FSM
+        if template == "CUSTOM":
+            await callback.answer("Кастомные шаблоны скоро!", show_alert=True)
+            return
+        
+        update_settings(text_template=template)
+        
+        template_names = {
+            "SHORT": "Короткий",
+            "MEDIUM": "Средний",
+            "LONG": "Длинный",
+            "CUSTOM": "Кастомный"
+        }
+        await callback.answer(f"Шаблон: {template_names.get(template, template)}")
+        
+        await callback.message.edit_text(
+            "⚙️ <b>Настройки</b>\n\nВыберите параметр:",
+            parse_mode="HTML",
+            reply_markup=settings_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_select_template: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "cancel_action")
+async def cb_cancel_action(callback: CallbackQuery) -> None:
+    """Universal cancel handler."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    await callback.answer("Отменено")
+    await callback.message.edit_text(
+        "✅ Действие отменено",
+        reply_markup=None
+    )
 
 
 @router.callback_query(F.data.startswith("set_time_"))
@@ -523,7 +683,169 @@ async def cb_admin_test_holidays(callback: CallbackQuery) -> None:
 
 
 # ============================================
-# POST PREVIEW CALLBACKS
+# POST PREVIEW CALLBACKS (New format)
+# ============================================
+
+@router.callback_query(F.data.startswith("publish:"))
+async def cb_publish_new(callback: CallbackQuery) -> None:
+    """Handle '✅ Опубликовать' button - publish pending post (new format)."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        post_id = callback.data.split(":")[1]
+        await callback.answer("📤 Публикую в канал...")
+        
+        from services.post_service import publish_pending_post
+        from services.user_service import increment_posts_triggered
+        from handlers.admin import update_last_post_status
+        
+        success = await publish_pending_post(
+            bot=callback.bot,
+            post_id=post_id,
+            channel_id=config.channel_id
+        )
+        
+        if success:
+            update_last_post_status(success=True)
+            increment_posts_triggered(callback.from_user.id)
+            
+            await callback.message.edit_caption(
+                caption="✅ <b>Пост успешно опубликован!</b>",
+                parse_mode="HTML"
+            )
+            logger.info(f"Post {post_id} published by {mask_user_id(callback.from_user.id, config.debug_mode)}")
+        else:
+            update_last_post_status(success=False, error="Publish failed")
+            await callback.message.edit_caption(
+                caption="❌ <b>Не удалось опубликовать.</b>\nПроверьте логи.",
+                parse_mode="HTML"
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in cb_publish_new: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка при публикации", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("edit:"))
+async def cb_edit_post(callback: CallbackQuery) -> None:
+    """Handle '✏️ Редактировать' button - start editing post text."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        post_id = callback.data.split(":")[1]
+        
+        from services.post_service import get_pending_post
+        from keyboards import editing_keyboard
+        
+        post_data = get_pending_post(post_id)
+        if not post_data:
+            await callback.answer("Пост не найден", show_alert=True)
+            return
+        
+        # TODO: Set FSM state for editing
+        await callback.answer()
+        await callback.message.answer(
+            "✏️ <b>Режим редактирования</b>\n\n"
+            "Отправьте новый текст поста целиком.\n"
+            "Текущий текст будет заменён.\n\n"
+            "<i>Для отмены нажмите кнопку ниже.</i>",
+            parse_mode="HTML",
+            reply_markup=editing_keyboard()
+        )
+        
+        logger.info(f"Editing started for post {post_id}")
+        
+    except Exception as e:
+        logger.error(f"Error in cb_edit_post: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("regenerate:"))
+async def cb_regenerate_new(callback: CallbackQuery) -> None:
+    """Handle '🔄 Заново' button - regenerate post (new format)."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        post_id = callback.data.split(":")[1]
+        await callback.answer("🔄 Генерирую заново...")
+        
+        from services.post_service import generate_post_data, store_pending_post, _pending_posts
+        
+        # Show loading
+        try:
+            await callback.message.edit_caption(
+                caption="⏳ <b>Генерирую новый пост...</b>",
+                parse_mode="HTML"
+            )
+        except:
+            pass
+        
+        # Generate new post
+        post_data = await generate_post_data()
+        
+        if post_data:
+            # Replace with same ID
+            _pending_posts[post_id] = post_data
+            
+            # Send new preview
+            from services.post_service import send_preview_to_admin
+            await send_preview_to_admin(
+                bot=callback.bot,
+                admin_id=callback.from_user.id,
+                post_data=post_data,
+                reply_markup=preview_post_keyboard(post_id)
+            )
+            
+            try:
+                await callback.message.delete()
+            except:
+                pass
+        else:
+            await callback.message.edit_caption(
+                caption="❌ <b>Не удалось перегенерировать</b>",
+                parse_mode="HTML",
+                reply_markup=preview_post_keyboard(post_id)
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in cb_regenerate_new: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("cancel:"))
+async def cb_cancel_new(callback: CallbackQuery) -> None:
+    """Handle '❌ Отменить' button - cancel pending post (new format)."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        post_id = callback.data.split(":")[1]
+        
+        from services.post_service import remove_pending_post
+        remove_pending_post(post_id)
+        
+        await callback.answer("Отменено")
+        await callback.message.edit_caption(
+            caption="❌ <b>Публикация отменена</b>",
+            parse_mode="HTML"
+        )
+        
+        logger.info(f"Post {post_id} cancelled")
+        
+    except Exception as e:
+        logger.error(f"Error in cb_cancel_new: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+# ============================================
+# POST PREVIEW CALLBACKS (Legacy format)
 # ============================================
 
 @router.callback_query(F.data.startswith("publish_post"))

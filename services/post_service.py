@@ -82,7 +82,8 @@ def _get_quote_for_weekday(weekday: int) -> Dict[str, str]:
 def _format_post_text(
     target_date: date,
     quote: Dict[str, str],
-    content: Dict[str, Any]
+    content: Dict[str, Any],
+    add_channel_link: bool = True
 ) -> str:
     """
     Format the full post text with HTML formatting.
@@ -91,10 +92,16 @@ def _format_post_text(
         target_date: Date of the post
         quote: Quote dictionary with 'text' and 'author'
         content: Generated content from AI
+        add_channel_link: Whether to add channel signature at the end
     
     Returns:
         Formatted HTML post text
     """
+    from services.settings_service import get_settings, get_channel_signature, get_template_limit, TextTemplate
+    
+    settings = get_settings()
+    max_length = get_template_limit()
+    
     # Extract content parts
     greeting = content.get("greeting", "Доброе утро, мои дорогие! ☀️")
     holiday_text = content.get("holiday_text", "")
@@ -119,32 +126,67 @@ def _format_post_text(
         f"{i}. {step}" for i, step in enumerate(instructions, 1)
     ])
     
-    # Build full post
-    post_parts = [
-        greeting,
-        "",
-        f"<i>«{quote['text']}»</i> — {quote['author']}",
-        "",
-        f"📅 Сегодня <b>{date_str}</b>",
-        "",
-        holiday_text,
-        "",
-        f"📖 <b>Рецепт: {recipe_name}</b>",
-        "",
-        f"🍽 Порции: {servings} | ⏱ Время: {cooking_time} минут",
-        "",
-        "<b>Ингредиенты:</b>",
-        ingredients_text,
-        "",
-        "<b>Приготовление:</b>",
-        instructions_text,
-    ]
+    # Get calories if available
+    calories = recipe.get("calories_per_serving", "")
     
-    # Add tip if present
-    if tip:
-        post_parts.extend(["", f"💡 <b>Совет:</b> {tip}"])
+    # Build full post based on template
+    if settings.text_template == TextTemplate.SHORT.value:
+        # Short template - compact version
+        post_parts = [
+            greeting,
+            "",
+            f"📅 <b>{date_str}</b>, {WEEKDAYS_RU[target_date.weekday()]}",
+            "",
+            holiday_text,
+            "",
+            f"🍳 <b>{recipe_name}</b>",
+            f"⏱ {cooking_time} мин | 🍽 {servings} порций",
+        ]
+        if calories:
+            post_parts.append(f"🔥 {calories} ккал/порция")
+    else:
+        # Medium/Long template - full version
+        post_parts = [
+            greeting,
+            "",
+            f"<i>«{quote['text']}»</i> — {quote['author']}",
+            "",
+            f"📅 Сегодня <b>{date_str}</b>, {WEEKDAYS_RU[target_date.weekday()]}",
+            "",
+            holiday_text,
+            "",
+            f"📖 <b>Рецепт: {recipe_name}</b>",
+            "",
+            f"🍽 Порции: {servings} | ⏱ Время: {cooking_time} мин",
+        ]
+        
+        if calories:
+            post_parts[-1] += f" | 🔥 {calories} ккал"
+        
+        post_parts.extend([
+            "",
+            "<b>Ингредиенты:</b>",
+            ingredients_text,
+            "",
+            "<b>Приготовление:</b>",
+            instructions_text,
+        ])
+        
+        # Add tip if present
+        if tip:
+            post_parts.extend(["", f"💡 <b>Совет:</b> {tip}"])
     
-    return "\n".join(post_parts)
+    post_text = "\n".join(post_parts)
+    
+    # Add channel signature
+    if add_channel_link:
+        post_text += get_channel_signature(config.channel_id)
+    
+    # Truncate if needed (for SHORT and MEDIUM templates)
+    if len(post_text) > max_length and settings.text_template != TextTemplate.LONG.value:
+        post_text = post_text[:max_length - 3] + "..."
+    
+    return post_text
 
 
 async def generate_post_data(

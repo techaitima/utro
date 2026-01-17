@@ -151,9 +151,9 @@ async def show_help(message: Message) -> None:
 # REPLY KEYBOARD BUTTON HANDLERS
 # ============================================
 
-@router.message(F.text == "📨 Пост сейчас")
-async def btn_post_now(message: Message) -> None:
-    """Handle 'Пост сейчас' button - generate preview for admin."""
+@router.message(F.text == "� Сегодня")
+async def btn_post_today(message: Message) -> None:
+    """Handle 'Сегодня' button - generate preview for today."""
     user_id = message.from_user.id
     
     if not is_admin(user_id):
@@ -165,21 +165,19 @@ async def btn_post_now(message: Message) -> None:
             user_id=user_id,
             first_name=message.from_user.first_name,
             username=message.from_user.username,
-            action="btn_post_now"
+            action="btn_post_today"
         )
         
-        # Get bot instance from message
         bot = message.bot
         
         await message.answer(
-            "⏳ Генерирую пост...\n\n"
+            "⏳ Генерирую пост на сегодня...\n\n"
             "Это может занять 1-2 минуты.",
             reply_markup=main_menu_keyboard()
         )
         
-        logger.info(f"{mask_user_id(user_id, config.debug_mode)} triggered post preview via button")
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} triggered today's post preview")
         
-        # Generate preview instead of posting directly
         from services.post_service import post_to_channel
         from keyboards import preview_post_keyboard
         
@@ -191,13 +189,67 @@ async def btn_post_now(message: Message) -> None:
         )
         
         if success and post_id:
-            logger.info(f"Preview generated for {mask_user_id(user_id, config.debug_mode)}, post_id: {post_id}")
-            # Preview already sent by post_to_channel
+            logger.info(f"Preview generated, post_id: {post_id}")
         else:
             await message.answer(
                 "❌ Не удалось сгенерировать пост. Проверьте логи.",
                 reply_markup=main_menu_keyboard()
             )
+            
+    except Exception as e:
+        logger.error(f"Error in btn_post_today: {e}", exc_info=True)
+        await message.answer(
+            "⚠️ Ошибка при генерации поста.",
+            reply_markup=main_menu_keyboard()
+        )
+
+
+# Legacy handler for old button name
+@router.message(F.text == "📨 Пост сейчас")
+async def btn_post_now(message: Message) -> None:
+    """Handle legacy 'Пост сейчас' button - redirect to today."""
+    await btn_post_today(message)
+
+
+@router.message(F.text == "🖼 Пост из фото")
+async def btn_post_from_image(message: Message) -> None:
+    """Handle 'Пост из фото' button - start image-based post creation."""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        await send_access_denied(message)
+        return
+    
+    try:
+        update_user_activity(
+            user_id=user_id,
+            first_name=message.from_user.first_name,
+            username=message.from_user.username,
+            action="btn_post_from_image"
+        )
+        
+        from keyboards import cancel_keyboard
+        
+        await message.answer(
+            "📷 <b>Пост из фотографии</b>\n\n"
+            "Отправьте мне фото блюда, и я создам пост на его основе.\n\n"
+            "<b>Требования к фото:</b>\n"
+            "• 🍽 Качественное изображение\n"
+            "• 🥗 Еда должна быть в кадре\n"
+            "• 📸 Хорошее освещение",
+            parse_mode="HTML",
+            reply_markup=cancel_keyboard()
+        )
+        
+        # TODO: Set FSM state for waiting for image
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} started post from image flow")
+        
+    except Exception as e:
+        logger.error(f"Error in btn_post_from_image: {e}", exc_info=True)
+        await message.answer(
+            "⚠️ Ошибка. Попробуйте позже.",
+            reply_markup=main_menu_keyboard()
+        )
             
     except Exception as e:
         logger.error(f"Error in btn_post_now: {e}", exc_info=True)
