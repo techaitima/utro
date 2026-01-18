@@ -900,15 +900,6 @@ async def cb_recipe_add_photo(callback: CallbackQuery, state: FSMContext) -> Non
     except Exception as e:
         logger.error(f"Error in cb_recipe_add_photo: {e}", exc_info=True)
         await callback.answer("⚠️ Ошибка", show_alert=True)
-                f"❌ <b>Не удалось сгенерировать {category_name} рецепт</b>\n\n"
-                f"Попробуйте позже.",
-                parse_mode="HTML",
-                reply_markup=recipe_category_keyboard()
-            )
-        
-    except Exception as e:
-        logger.error(f"Error in cb_recipe_category: {e}", exc_info=True)
-        await callback.answer("⚠️ Ошибка", show_alert=True)
 
 
 # ============================================
