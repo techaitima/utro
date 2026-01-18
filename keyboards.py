@@ -310,9 +310,7 @@ def recipe_confirm_keyboard(category: str) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="📷 Добавить своё фото", callback_data=f"recipe_photo:{category}")
             ],
-            [
-                InlineKeyboardButton(text="◀️ Назад", callback_data="newpost:recipe")
-            ]
+                [InlineKeyboardButton(text="◀️ Назад", callback_data="newpost:recipe")]
         ]
     )
         ]
