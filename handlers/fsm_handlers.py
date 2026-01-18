@@ -303,13 +303,6 @@ async def process_content_photo(message: Message, state: FSMContext) -> None:
     
     await state.set_state(NewPostStates.waiting_for_prompt)
     logger.info(f"{mask_user_id(user_id, config.debug_mode)} uploaded photo for new post")
-        "или бот создаст пост автоматически?",
-        parse_mode="HTML",
-        reply_markup=prompt_keyboard
-    )
-    
-    await state.set_state(NewPostStates.waiting_for_prompt)
-    logger.info(f"{mask_user_id(user_id, config.debug_mode)} uploaded photo for new post")
 
 
 @router.message(NewPostStates.waiting_for_content, F.text)
@@ -818,8 +811,3 @@ async def process_recipe_photo(message: Message, state: FSMContext) -> None:
         parse_mode="HTML",
         reply_markup=recipe_confirm_keyboard(category)
     )
-    else:
-        await message.answer(
-            "Нечего отменять.",
-            reply_markup=main_menu_keyboard()
-        )
