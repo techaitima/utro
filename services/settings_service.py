@@ -5,10 +5,10 @@ Stores user preferences: template, image model, channel link, etc.
 
 import json
 import logging
-from pathlib import Path
-from typing import Dict, Any, Optional
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -18,62 +18,66 @@ SETTINGS_FILE = Path(__file__).parent.parent / "data" / "settings.json"
 
 class TextTemplate(str, Enum):
     """Post text template options."""
-    SHORT = "short"      # Always single post with image
-    MEDIUM = "medium"    # Single post with image (may be truncated)
-    LONG = "long"        # Can split into multiple posts
-    CUSTOM = "custom"    # User-defined template
+
+    SHORT = "short"  # Always single post with image
+    MEDIUM = "medium"  # Single post with image (may be truncated)
+    LONG = "long"  # Can split into multiple posts
+    CUSTOM = "custom"  # User-defined template
 
 
 class ImageModel(str, Enum):
     """Image generation model options."""
-    DALLE3 = "dalle3"    # OpenAI DALL-E 3
-    FLUX = "flux"        # Flux model
+
+    DALLE3 = "dalle3"  # OpenAI DALL-E 3
+    FLUX = "flux"  # Flux model
 
 
 class RecipeType(str, Enum):
     """Recipe type options."""
-    PP = "pp"            # Правильное питание (default)
-    KETO = "keto"        # Кетогенная диета
-    MIXED = "mixed"      # Смешанный (иногда кето, иногда ПП)
+
+    PP = "pp"  # Правильное питание (default)
+    KETO = "keto"  # Кетогенная диета
+    MIXED = "mixed"  # Смешанный (иногда кето, иногда ПП)
 
 
 @dataclass
 class BotSettings:
     """Bot settings data class."""
+
     # Template settings
     text_template: str = TextTemplate.MEDIUM.value
     custom_template: str = ""
     custom_length: int = 1500  # Custom post length in characters
-    
+
     # Image settings
     image_enabled: bool = True
     image_model: str = ImageModel.DALLE3.value
-    
+
     # Channel link settings
     channel_name: str = "Utro | ПП рецепты"
     channel_emoji: str = "🍽"
     channel_link: str = ""  # Will be auto-generated from channel_id
-    
+
     # Recipe settings
     recipe_type: str = RecipeType.PP.value
-    
+
     # Schedule settings
     custom_schedule_time: str = ""  # User's preferred time (HH:MM)
-    
+
     # Flux API settings (if using Flux)
     flux_api_key: str = ""
     flux_api_url: str = "https://api.together.xyz/v1/images/generations"
-    
+
     # Editing state
     editing_post_id: Optional[str] = None
     editing_message_id: Optional[int] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert settings to dictionary."""
         return asdict(self)
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'BotSettings':
+    def from_dict(cls, data: Dict[str, Any]) -> "BotSettings":
         """Create settings from dictionary."""
         # Filter only valid fields
         valid_fields = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
@@ -87,10 +91,10 @@ _settings: Optional[BotSettings] = None
 def load_settings() -> BotSettings:
     """Load settings from file or create defaults."""
     global _settings
-    
+
     if _settings is not None:
         return _settings
-    
+
     try:
         if SETTINGS_FILE.exists():
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -104,24 +108,24 @@ def load_settings() -> BotSettings:
     except Exception as e:
         logger.error(f"Error loading settings: {e}")
         _settings = BotSettings()
-    
+
     return _settings
 
 
 def save_settings() -> bool:
     """Save current settings to file."""
     global _settings
-    
+
     if _settings is None:
         _settings = BotSettings()
-    
+
     try:
         # Ensure data directory exists
         SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(_settings.to_dict(), f, ensure_ascii=False, indent=2)
-        
+
         logger.info("Settings saved to file")
         return True
     except Exception as e:
@@ -137,11 +141,11 @@ def get_settings() -> BotSettings:
 def update_settings(**kwargs) -> BotSettings:
     """Update specific settings and save."""
     settings = get_settings()
-    
+
     for key, value in kwargs.items():
         if hasattr(settings, key):
             setattr(settings, key, value)
-    
+
     save_settings()
     return settings
 
@@ -199,14 +203,14 @@ def clear_editing_state() -> BotSettings:
 def get_channel_signature(channel_id: str = "") -> str:
     """
     Get formatted channel signature for posts.
-    
+
     Returns:
         Formatted string like "🍽 @channel_name" or with link
     """
     settings = get_settings()
-    
+
     if settings.channel_link:
-        return f"\n\n{settings.channel_emoji} <a href=\"{settings.channel_link}\">{settings.channel_name}</a>"
+        return f'\n\n{settings.channel_emoji} <a href="{settings.channel_link}">{settings.channel_name}</a>'
     elif channel_id and channel_id.startswith("-100"):
         # Try to create link from channel ID (public channels only)
         return f"\n\n{settings.channel_emoji} {settings.channel_name}"
@@ -216,21 +220,21 @@ def get_channel_signature(channel_id: str = "") -> str:
 
 # Template length limits (in characters)
 TEMPLATE_LIMITS = {
-    TextTemplate.SHORT.value: 800,    # Short - compact post
-    TextTemplate.MEDIUM.value: 1000,  # Medium - standard post
-    TextTemplate.LONG.value: 2000,    # Long - detailed post
-    TextTemplate.CUSTOM.value: 4000   # Custom - user defines (max)
+    TextTemplate.SHORT.value: 800,  # Short - compact post
+    TextTemplate.MEDIUM.value: 4096,  # Medium - standard post (Telegram max)
+    TextTemplate.LONG.value: 4096,  # Long - detailed post (Telegram max)
+    TextTemplate.CUSTOM.value: 4096,  # Custom - user defines (max)
 }
 
 
 def get_template_limit() -> int:
     """Get character limit for current template."""
     settings = get_settings()
-    
+
     # If custom template, use user's custom_length
     if settings.text_template == TextTemplate.CUSTOM.value:
         return settings.custom_length if settings.custom_length > 0 else 1500
-    
+
     return TEMPLATE_LIMITS.get(settings.text_template, 1000)
 
 
