@@ -23,13 +23,19 @@ from keyboards import (
     confirm_image_test_keyboard,
     new_post_category_keyboard,
     recipe_category_keyboard,
-    cancel_keyboard
+    recipe_confirm_keyboard,
+    cancel_keyboard,
+    skip_keyboard
 )
 from handlers.states import (
     ScheduleStates,
     TemplateStates,
     NewPostStates,
-    EditPostStates
+    EditPostStates,
+    RecipeStates,
+    PollStates,
+    TipStates,
+    LifehackStates
 )
 from services.user_service import update_user_activity, format_user_stats
 from services.settings_service import (
@@ -407,18 +413,40 @@ async def cb_select_template(callback: CallbackQuery, state: FSMContext) -> None
                 "🔢 <b>Своя длина поста</b>\n\n"
                 "Отправьте желаемое количество символов.\n"
                 "Допустимый диапазон: 100 — 5000\n\n"
-                "Например: <code>1500</code>\n\n"
-                "Отправьте /cancel для отмены.",
+                "Например: <code>1500</code>",
                 parse_mode="HTML"
+            )
+            await callback.message.answer(
+                "Жду число символов...",
+                reply_markup=cancel_keyboard()
+            )
+            return
+        
+        if template == "CUSTOM":
+            # Enter FSM state for custom template text
+            await state.set_state(TemplateStates.waiting_for_custom_template)
+            await callback.answer()
+            await callback.message.edit_text(
+                "✏️ <b>Свой шаблон</b>\n\n"
+                "Опишите формат постов, который вам нужен.\n\n"
+                "<i>Примеры:</i>\n"
+                "• «Начинай с эмодзи, потом заголовок, потом рецепт списком»\n"
+                "• «Короткий совет + интересный факт в конце»\n"
+                "• «Формат: название, время готовки, ингредиенты, шаги»",
+                parse_mode="HTML"
+            )
+            await callback.message.answer(
+                "Жду описание шаблона...",
+                reply_markup=cancel_keyboard()
             )
             return
         
         update_settings(text_template=template)
         
         template_names = {
-            "SHORT": "Короткий (~800)",
-            "MEDIUM": "Средний (~1000)",
-            "LONG": "Длинный (~2000)"
+            "SHORT": "Короткий (~500)",
+            "MEDIUM": "Средний (~900)",
+            "LONG": "Длинный (~1800)"
         }
         await callback.answer(f"✅ {template_names.get(template, template)}")
         
@@ -545,13 +573,19 @@ async def cb_newpost_custom(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(NewPostStates.waiting_for_content)
         
         await callback.message.edit_text(
-            "✏️ <b>Свой пост</b>\n\n"
+            "💡 <b>Своя идея</b>\n\n"
             "Отправьте идею для поста:\n"
-            "• Можете приложить фото 📷\n"
-            "• Или просто текст с описанием\n\n"
-            "<i>Например: «рецепт овсянки с бананом» или «праздник пиццы»</i>\n\n"
-            "Отправьте /cancel для отмены.",
+            "• Фото с подписью 📷\n"
+            "• Или просто текст\n"
+            "• Или фото отдельно\n\n"
+            "<i>Если отправите фото с подписью — бот использует оба!</i>",
             parse_mode="HTML"
+        )
+        
+        # Send cancel keyboard
+        await callback.message.answer(
+            "Жду вашу идею...",
+            reply_markup=cancel_keyboard()
         )
         
         logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} started custom post flow")
@@ -585,15 +619,164 @@ async def cb_newpost_back(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("⚠️ Ошибка", show_alert=True)
 
 
+# ============================================
+# NEW POST CATEGORIES (Poll, Tip, Lifehack)
+# ============================================
+
+@router.callback_query(F.data == "newpost:poll")
+async def cb_newpost_poll(callback: CallbackQuery, state: FSMContext) -> None:
+    """Start poll creation."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        await state.update_data(category="poll")
+        await state.set_state(PollStates.waiting_for_topic)
+        
+        await callback.message.edit_text(
+            "📊 <b>Создание опроса</b>\n\n"
+            "Напишите тему опроса или нажмите «Пропустить» для автогенерации.\n\n"
+            "<i>Примеры:</i>\n"
+            "• Какой завтрак вы предпочитаете?\n"
+            "• Лучшая кухня мира?\n"
+            "• Сладкое или солёное?",
+            parse_mode="HTML"
+        )
+        
+        await callback.message.answer(
+            "Жду тему опроса...",
+            reply_markup=skip_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_newpost_poll: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "newpost:tip")
+async def cb_newpost_tip(callback: CallbackQuery, state: FSMContext) -> None:
+    """Start cooking tip creation."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        await state.update_data(category="tip")
+        await state.set_state(TipStates.waiting_for_topic)
+        
+        await callback.message.edit_text(
+            "💡 <b>Кулинарный совет</b>\n\n"
+            "Напишите тему совета или нажмите «Пропустить».\n\n"
+            "<i>Примеры:</i>\n"
+            "• Как правильно варить рис\n"
+            "• Секреты сочного мяса\n"
+            "• Как хранить зелень",
+            parse_mode="HTML"
+        )
+        
+        await callback.message.answer(
+            "Жду тему совета...",
+            reply_markup=skip_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_newpost_tip: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "newpost:lifehack")
+async def cb_newpost_lifehack(callback: CallbackQuery, state: FSMContext) -> None:
+    """Start kitchen lifehack creation."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        await callback.answer()
+        await state.update_data(category="lifehack")
+        await state.set_state(LifehackStates.waiting_for_topic)
+        
+        await callback.message.edit_text(
+            "🔧 <b>Кухонный лайфхак</b>\n\n"
+            "Напишите тему лайфхака или нажмите «Пропустить».\n\n"
+            "<i>Примеры:</i>\n"
+            "• Как быстро почистить чеснок\n"
+            "• Лайфхаки с микроволновкой\n"
+            "• Как сохранить продукты свежими",
+            parse_mode="HTML"
+        )
+        
+        await callback.message.answer(
+            "Жду тему лайфхака...",
+            reply_markup=skip_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_newpost_lifehack: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
 @router.callback_query(F.data.startswith("recipe:"))
-async def cb_recipe_category(callback: CallbackQuery) -> None:
-    """Handle recipe category selection and generate post."""
+async def cb_recipe_category(callback: CallbackQuery, state: FSMContext) -> None:
+    """Handle recipe category selection - show confirmation step."""
     if not is_admin(callback.from_user.id):
         await answer_unauthorized(callback)
         return
     
     try:
         category = callback.data.split(":")[1]
+        
+        category_names = {
+            "pp": "🥗 ПП",
+            "keto": "🥑 Кето",
+            "vegan": "🌱 Веган",
+            "detox": "🍵 Детокс",
+            "breakfast": "🍳 Завтраки",
+            "dessert": "🍰 ПП-десерты",
+            "smoothie": "🥤 Смузи",
+            "soup": "🥣 Супы"
+        }
+        
+        category_name = category_names.get(category, category)
+        
+        # Save category to state for confirmation step
+        await state.update_data(recipe_category=category)
+        await state.set_state(RecipeStates.confirming)
+        
+        await callback.answer()
+        
+        # Show confirmation with options
+        await callback.message.edit_text(
+            f"📂 <b>Категория: {category_name}</b>\n\n"
+            f"Выберите действие:\n"
+            f"• <b>Сгенерировать</b> — сразу создать пост\n"
+            f"• <b>Добавить идею</b> — уточнить рецепт\n"
+            f"• <b>Добавить фото</b> — использовать своё фото",
+            parse_mode="HTML",
+            reply_markup=recipe_confirm_keyboard(category)
+        )
+        
+        logger.info(f"{mask_user_id(callback.from_user.id, config.debug_mode)} selected recipe: {category}")
+        
+    except Exception as e:
+        logger.error(f"Error in cb_recipe_category: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("recipe_gen:"))
+async def cb_recipe_generate(callback: CallbackQuery, state: FSMContext) -> None:
+    """Generate recipe with current settings."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        category = callback.data.split(":")[1]
+        data = await state.get_data()
+        custom_idea = data.get("recipe_idea")
         
         category_names = {
             "pp": "ПП",
@@ -605,10 +788,10 @@ async def cb_recipe_category(callback: CallbackQuery) -> None:
             "smoothie": "Смузи",
             "soup": "Супы"
         }
-        
         category_name = category_names.get(category, category)
         
         await callback.answer(f"🍳 Генерирую {category_name} рецепт...")
+        await state.clear()
         
         update_user_activity(
             user_id=callback.from_user.id,
@@ -619,6 +802,7 @@ async def cb_recipe_category(callback: CallbackQuery) -> None:
         
         await callback.message.edit_text(
             f"⏳ <b>Генерирую {category_name} рецепт...</b>\n\n"
+            f"{'📝 С идеей: ' + custom_idea[:50] + '...' if custom_idea else ''}\n"
             f"Это может занять 1-2 минуты.",
             parse_mode="HTML"
         )
@@ -631,7 +815,8 @@ async def cb_recipe_category(callback: CallbackQuery) -> None:
             channel_id=config.channel_id,
             preview_mode=True,
             admin_id=callback.from_user.id,
-            recipe_category=category
+            recipe_category=category,
+            custom_idea=custom_idea
         )
         
         if success and post_id:
@@ -642,6 +827,79 @@ async def cb_recipe_category(callback: CallbackQuery) -> None:
             logger.info(f"Recipe post ({category}) generated: {post_id}")
         else:
             await callback.message.edit_text(
+                f"❌ <b>Не удалось сгенерировать {category_name} рецепт</b>\n\n"
+                f"Попробуйте позже.",
+                parse_mode="HTML",
+                reply_markup=recipe_category_keyboard()
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_recipe_generate: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("recipe_idea:"))
+async def cb_recipe_add_idea(callback: CallbackQuery, state: FSMContext) -> None:
+    """Ask for custom idea for recipe."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        category = callback.data.split(":")[1]
+        await state.update_data(recipe_category=category)
+        await state.set_state(RecipeStates.waiting_for_custom_idea)
+        
+        await callback.answer()
+        
+        await callback.message.edit_text(
+            "✏️ <b>Добавьте свою идею</b>\n\n"
+            "Напишите, какой именно рецепт вы хотите.\n\n"
+            "<i>Например:</i>\n"
+            "• Паста с морепродуктами\n"
+            "• Быстрый завтрак за 5 минут\n"
+            "• Что-то с авокадо",
+            parse_mode="HTML"
+        )
+        
+        await callback.message.answer(
+            "Жду вашу идею...",
+            reply_markup=cancel_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_recipe_add_idea: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("recipe_photo:"))
+async def cb_recipe_add_photo(callback: CallbackQuery, state: FSMContext) -> None:
+    """Ask for custom photo for recipe."""
+    if not is_admin(callback.from_user.id):
+        await answer_unauthorized(callback)
+        return
+    
+    try:
+        category = callback.data.split(":")[1]
+        await state.update_data(recipe_category=category)
+        await state.set_state(RecipeStates.waiting_for_custom_photo)
+        
+        await callback.answer()
+        
+        await callback.message.edit_text(
+            "📷 <b>Отправьте фото</b>\n\n"
+            "Это фото будет использовано вместо сгенерированного.",
+            parse_mode="HTML"
+        )
+        
+        await callback.message.answer(
+            "Жду фото...",
+            reply_markup=cancel_keyboard()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in cb_recipe_add_photo: {e}", exc_info=True)
+        await callback.answer("⚠️ Ошибка", show_alert=True)
                 f"❌ <b>Не удалось сгенерировать {category_name} рецепт</b>\n\n"
                 f"Попробуйте позже.",
                 parse_mode="HTML",

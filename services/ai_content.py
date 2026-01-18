@@ -379,3 +379,312 @@ async def generate_recipe(holiday_name: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error generating recipe: {e}")
         return _get_static_fallback(date.today(), {})["recipe"]
+
+
+# ============================================
+# NEW POST TYPES - Without holidays/quotes
+# ============================================
+
+# Template configurations for post length control
+TEMPLATE_CONFIGS = {
+    "short": {
+        "max_chars": 500,
+        "prompt_addition": "Максимум 500 символов. Очень кратко."
+    },
+    "medium": {
+        "max_chars": 900,
+        "prompt_addition": "Максимум 900 символов. Включи основные детали."
+    },
+    "long": {
+        "max_chars": 1800,
+        "prompt_addition": "До 1800 символов. Подробно, но не растягивай."
+    },
+    "custom": {
+        "max_chars": 1500,
+        "prompt_addition": "Следуй формату пользователя."
+    }
+}
+
+
+async def generate_recipe_post(
+    category: str,
+    custom_idea: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generate recipe post WITHOUT holidays or quotes.
+    Only pure recipe content.
+    
+    Args:
+        category: Recipe category (pp, keto, vegan, etc.)
+        custom_idea: Optional custom idea from user
+    
+    Returns:
+        Dict with 'text' and 'image_prompt'
+    """
+    client = get_openai_client()
+    
+    recipe_types = {
+        "pp": "ПП (правильное питание) - низкокалорийный",
+        "keto": "Кето - высокожировой, без углеводов",
+        "vegan": "Веганский - без продуктов животного происхождения",
+        "detox": "Детокс - легкий, очищающий",
+        "breakfast": "Полезный завтрак",
+        "dessert": "ПП-десерт - без сахара",
+        "smoothie": "Смузи - витаминный напиток",
+        "soup": "Полезный суп"
+    }
+    
+    recipe_type = recipe_types.get(category, "ПП (правильное питание)")
+    
+    custom_section = f"\nИДЕЯ: {custom_idea}" if custom_idea else ""
+    
+    await get_rate_limiter("openai").check_rate_limit()
+    
+    prompt = f"""Создай рецепт для кулинарного канала.
+
+Тип рецепта: {recipe_type}{custom_section}
+
+ПРАВИЛА:
+1. НЕ добавляй праздники или цитаты - ТОЛЬКО рецепт
+2. БЕЗ САХАРА - используй эритрит или стевию (стевия - капли!)
+3. Формат: 
+   - Название с эмодзи
+   - Время готовки и порции
+   - Ингредиенты списком
+   - Пошаговое приготовление
+   - Совет в конце
+4. Максимум 900 символов
+
+Верни JSON:
+{{"text": "готовый текст поста", "recipe_name": "название", "image_prompt": "описание на английском"}}"""
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1500,
+            temperature=0.8,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        logger.info(f"Generated recipe post: {result.get('recipe_name', 'unknown')}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error generating recipe post: {e}")
+        raise
+
+
+async def generate_custom_idea_post(
+    custom_idea: str
+) -> Dict[str, Any]:
+    """
+    Generate post from user's custom idea WITHOUT holidays.
+    
+    Args:
+        custom_idea: User's text/idea for the post
+    
+    Returns:
+        Dict with 'text' and 'image_prompt'
+    """
+    client = get_openai_client()
+    
+    await get_rate_limiter("openai").check_rate_limit()
+    
+    prompt = f"""Создай пост для кулинарного канала на тему:
+"{custom_idea}"
+
+ПРАВИЛА:
+1. НЕ добавляй праздники или цитаты - только контент по теме
+2. Живой, дружелюбный стиль с эмодзи
+3. Максимум 900 символов
+4. Если это рецепт - без сахара (используй эритрит/стевию)
+
+Верни JSON:
+{{"text": "готовый текст поста", "image_prompt": "описание для картинки на английском"}}"""
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1500,
+            temperature=0.8,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        logger.info(f"Generated custom idea post")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error generating custom post: {e}")
+        raise
+
+
+async def generate_poll_post(
+    custom_topic: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generate culinary poll post.
+    
+    Args:
+        custom_topic: Optional topic from user
+    
+    Returns:
+        Dict with 'question', 'options', 'intro_text'
+    """
+    client = get_openai_client()
+    
+    await get_rate_limiter("openai").check_rate_limit()
+    
+    topic_section = f"Тема: {custom_topic}" if custom_topic else "Выбери интересную кулинарную тему"
+    
+    prompt = f"""Создай опрос для кулинарного канала.
+{topic_section}
+
+ПРАВИЛА:
+1. НЕ добавляй праздники - только опрос
+2. Вопрос должен быть интересным и спорным
+3. 2-4 варианта ответа
+4. Короткий вступительный текст (1-2 предложения)
+
+Примеры тем: любимый завтрак, лучшая кухня мира, способы готовки, любимый десерт
+
+Верни JSON:
+{{"intro_text": "вступление с эмодзи", "question": "вопрос для опроса", "options": ["вариант 1", "вариант 2", "вариант 3"], "image_prompt": "описание картинки"}}"""
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=500,
+            temperature=0.9,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        logger.info(f"Generated poll: {result.get('question', 'unknown')}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error generating poll: {e}")
+        raise
+
+
+async def generate_tip_post(
+    custom_topic: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generate cooking tip post.
+    
+    Args:
+        custom_topic: Optional topic from user
+    
+    Returns:
+        Dict with 'text' and 'image_prompt'
+    """
+    client = get_openai_client()
+    
+    await get_rate_limiter("openai").check_rate_limit()
+    
+    topic = custom_topic if custom_topic else "полезный совет для домашней кухни"
+    
+    prompt = f"""Создай пост с кулинарным советом.
+Тема: {topic}
+
+ПРАВИЛА:
+1. НЕ добавляй праздники - только совет
+2. Совет должен быть практичным и полезным
+3. Живой стиль с эмодзи
+4. Максимум 500 символов
+
+Верни JSON:
+{{"text": "готовый текст поста с советом", "image_prompt": "описание картинки на английском"}}"""
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=600,
+            temperature=0.8,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        logger.info(f"Generated tip post")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error generating tip: {e}")
+        raise
+
+
+async def generate_lifehack_post(
+    custom_topic: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generate kitchen lifehack post.
+    
+    Args:
+        custom_topic: Optional topic from user
+    
+    Returns:
+        Dict with 'text' and 'image_prompt'
+    """
+    client = get_openai_client()
+    
+    await get_rate_limiter("openai").check_rate_limit()
+    
+    topic = custom_topic if custom_topic else "неочевидный кухонный лайфхак"
+    
+    prompt = f"""Создай пост с кухонным лайфхаком.
+Тема: {topic}
+
+ПРАВИЛА:
+1. НЕ добавляй праздники - только лайфхак
+2. Лайфхак должен быть неочевидным и удивительным
+3. Экономить время, деньги или упрощать готовку
+4. Живой стиль с эмодзи
+5. Максимум 500 символов
+
+Верни JSON:
+{{"text": "готовый текст с лайфхаком", "image_prompt": "описание картинки на английском"}}"""
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=600,
+            temperature=0.9,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        logger.info(f"Generated lifehack post")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error generating lifehack: {e}")
+        raise
+
+
+def truncate_at_sentence(text: str, max_length: int) -> str:
+    """Truncate text at sentence boundary."""
+    if len(text) <= max_length:
+        return text
+    
+    truncated = text[:max_length]
+    
+    # Find last sentence end
+    for punct in ['. ', '! ', '? ', '.\n', '!\n', '?\n']:
+        last_punct = truncated.rfind(punct)
+        if last_punct > max_length * 0.7:
+            return truncated[:last_punct + 1].strip()
+    
+    # Fallback: cut at last space
+    last_space = truncated.rfind(' ')
+    if last_space > max_length * 0.8:
+        return truncated[:last_space].strip() + "..."
+    
+    return truncated.strip() + "..."

@@ -211,20 +211,26 @@ def template_select_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=f"{check(TextTemplate.SHORT.value)}📄 Короткий (~800 символов)", 
+                    text=f"{check(TextTemplate.SHORT.value)}📄 Короткий (~500 символов)", 
                     callback_data="template:SHORT"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=f"{check(TextTemplate.MEDIUM.value)}📃 Средний (~1000 символов)", 
+                    text=f"{check(TextTemplate.MEDIUM.value)}📃 Средний (~900 символов)", 
                     callback_data="template:MEDIUM"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=f"{check(TextTemplate.LONG.value)}📜 Длинный (~2000 символов)", 
+                    text=f"{check(TextTemplate.LONG.value)}📜 Длинный (~1800 символов)", 
                     callback_data="template:LONG"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"{check(TextTemplate.CUSTOM.value)}✏️ Свой шаблон", 
+                    callback_data="template:CUSTOM"
                 )
             ],
             [
@@ -248,7 +254,14 @@ def new_post_category_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🍳 Рецепт", callback_data="newpost:recipe")
             ],
             [
-                InlineKeyboardButton(text="✏️ Свой пост", callback_data="newpost:custom")
+                InlineKeyboardButton(text="💡 Своя идея", callback_data="newpost:custom")
+            ],
+            [
+                InlineKeyboardButton(text="📊 Опрос", callback_data="newpost:poll"),
+                InlineKeyboardButton(text="💡 Совет", callback_data="newpost:tip")
+            ],
+            [
+                InlineKeyboardButton(text="🔧 Лайфхак", callback_data="newpost:lifehack")
             ],
             [
                 InlineKeyboardButton(text="◀️ Назад", callback_data="back_main")
@@ -280,6 +293,28 @@ def recipe_category_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="◀️ Назад", callback_data="newpost:back")
             ]
+        ]
+    )
+
+
+def recipe_confirm_keyboard(category: str) -> InlineKeyboardMarkup:
+    """Keyboard for recipe confirmation with options to add custom idea/photo."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✨ Сгенерировать", callback_data=f"recipe_gen:{category}")
+            ],
+            [
+                InlineKeyboardButton(text="✏️ Добавить свою идею", callback_data=f"recipe_idea:{category}")
+            ],
+            [
+                InlineKeyboardButton(text="📷 Добавить своё фото", callback_data=f"recipe_photo:{category}")
+            ],
+            [
+                InlineKeyboardButton(text="◀️ Назад", callback_data="newpost:recipe")
+            ]
+        ]
+    )
         ]
     )
 

@@ -223,3 +223,75 @@ def clear_cache() -> None:
     global _holidays_cache
     _holidays_cache = {}
     logger.info("Holidays cache cleared")
+
+
+async def test_holidays(test_date: date = None) -> Dict:
+    """
+    Test holidays function - returns detailed diagnostic info.
+    
+    Args:
+        test_date: Date to test (defaults to today)
+    
+    Returns:
+        Dict with detailed test results
+    """
+    if test_date is None:
+        test_date = date.today()
+    
+    result = {
+        "date": test_date.isoformat(),
+        "date_formatted": test_date.strftime("%d.%m.%Y"),
+        "cache_key": _get_cache_key(test_date),
+        "api_key_configured": bool(config.holidays_api_key),
+        "ru_holidays": [],
+        "us_holidays": [],
+        "food_holidays": [],
+        "all_holidays": [],
+        "errors": [],
+        "status": "success"
+    }
+    
+    try:
+        # Fetch Russian holidays
+        logger.info(f"Testing holidays for {test_date}...")
+        ru_holidays = await _fetch_from_calendarific(test_date, "RU")
+        result["ru_holidays"] = [h["name"] for h in ru_holidays]
+        result["ru_count"] = len(ru_holidays)
+    except Exception as e:
+        result["errors"].append(f"RU fetch error: {str(e)}")
+    
+    try:
+        # Fetch US holidays
+        await asyncio.sleep(0.3)
+        us_holidays = await _fetch_from_calendarific(test_date, "US")
+        result["us_holidays"] = [h["name"] for h in us_holidays]
+        result["us_count"] = len(us_holidays)
+        
+        # Filter food-related
+        food_holidays = [h for h in us_holidays if _is_food_related(h)]
+        result["food_holidays"] = [h["name"] for h in food_holidays]
+        result["food_count"] = len(food_holidays)
+    except Exception as e:
+        result["errors"].append(f"US fetch error: {str(e)}")
+    
+    try:
+        # Get combined result
+        all_holidays = await fetch_holidays_for_date(test_date)
+        result["all_holidays"] = [h["name"] for h in all_holidays]
+        result["total_count"] = len(all_holidays)
+    except Exception as e:
+        result["errors"].append(f"Combined fetch error: {str(e)}")
+    
+    # Determine status
+    if result["errors"]:
+        result["status"] = "error"
+        result["message"] = "Произошли ошибки при получении праздников"
+    elif not result["all_holidays"]:
+        result["status"] = "no_holidays"
+        result["message"] = f"На {result['date_formatted']} праздников не найдено"
+    else:
+        result["status"] = "success"
+        result["message"] = f"Найдено {len(result['all_holidays'])} праздников на {result['date_formatted']}"
+    
+    logger.info(f"Test result: {result['message']}")
+    return result

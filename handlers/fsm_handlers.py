@@ -21,13 +21,18 @@ from keyboards import (
     recipe_category_keyboard,
     preview_post_keyboard,
     cancel_keyboard,
-    back_keyboard
+    skip_keyboard
 )
 from handlers.states import (
     ScheduleStates,
     TemplateStates,
     NewPostStates,
-    EditPostStates
+    EditPostStates,
+    RecipeStates,
+    PollStates,
+    TipStates,
+    LifehackStates,
+    is_menu_button
 )
 from services.user_service import update_user_activity
 from services.settings_service import get_settings, update_settings
@@ -57,8 +62,8 @@ async def process_custom_time(message: Message, state: FSMContext) -> None:
     
     text = message.text.strip()
     
-    # Check for cancel
-    if text in ["❌ Отмена", "/cancel"]:
+    # Check for cancel - support button only, not /cancel
+    if text == "❌ Отмена" or is_menu_button(text):
         await state.clear()
         await message.answer(
             "Отменено. Возвращаюсь к настройкам расписания.",
@@ -137,8 +142,8 @@ async def process_custom_length(message: Message, state: FSMContext) -> None:
     
     text = message.text.strip()
     
-    # Check for cancel
-    if text in ["❌ Отмена", "/cancel"]:
+    # Check for cancel or menu button
+    if text == "❌ Отмена" or is_menu_button(text):
         await state.clear()
         await message.answer(
             "Отменено. Возвращаюсь к настройкам.",
@@ -194,12 +199,54 @@ async def process_custom_length(message: Message, state: FSMContext) -> None:
 
 
 # ============================================
+# TEMPLATES - CUSTOM TEMPLATE TEXT INPUT
+# ============================================
+
+@router.message(TemplateStates.waiting_for_custom_template, F.text)
+async def process_custom_template(message: Message, state: FSMContext) -> None:
+    """Process custom template text input from user."""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        await state.clear()
+        return
+    
+    text = message.text.strip()
+    
+    # Check for cancel or menu button
+    if text == "❌ Отмена" or is_menu_button(text):
+        await state.clear()
+        await message.answer(
+            "Отменено. Возвращаюсь к настройкам.",
+            reply_markup=main_menu_keyboard()
+        )
+        return
+    
+    # Save custom template
+    update_settings(text_template="CUSTOM", custom_template=text)
+    
+    await state.clear()
+    
+    preview = text[:150] + "..." if len(text) > 150 else text
+    
+    await message.answer(
+        f"✅ <b>Свой шаблон сохранён!</b>\n\n"
+        f"<i>{preview}</i>\n\n"
+        f"Посты будут генерироваться по этому формату.",
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard()
+    )
+    
+    logger.info(f"{mask_user_id(user_id, config.debug_mode)} set custom template")
+
+
+# ============================================
 # NEW POST - CONTENT INPUT (Photo/Text)
 # ============================================
 
 @router.message(NewPostStates.waiting_for_content, F.photo)
 async def process_content_photo(message: Message, state: FSMContext) -> None:
-    """Process photo input for new post."""
+    """Process photo input for new post - handles photo with or without caption."""
     user_id = message.from_user.id
     
     if not is_admin(user_id):
@@ -210,19 +257,38 @@ async def process_content_photo(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1]
     caption = message.caption or ""
     
-    # Save photo file_id and caption to state
+    # If photo has caption - use both immediately!
+    if caption.strip():
+        # Photo + text together - generate immediately
+        await state.update_data(
+            photo_file_id=photo.file_id,
+            user_idea=caption,
+            has_photo=True
+        )
+        
+        await message.answer(
+            "📷✏️ <b>Фото и текст получены!</b>\n\n"
+            "⏳ Генерирую пост...\n"
+            "Это может занять 1-2 минуты.",
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard()
+        )
+        
+        # Generate post with photo and caption
+        await generate_new_post(message, state)
+        return
+    
+    # Only photo without caption - ask for text or auto
     await state.update_data(
         photo_file_id=photo.file_id,
-        user_idea=caption,
         has_photo=True
     )
     
-    # Move to prompt choice
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     
     prompt_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Дать промпт", callback_data="newpost_prompt:custom")],
+            [InlineKeyboardButton(text="✏️ Добавить текст", callback_data="newpost_prompt:custom")],
             [InlineKeyboardButton(text="🤖 Автоматически", callback_data="newpost_prompt:auto")],
             [InlineKeyboardButton(text="◀️ Назад", callback_data="newpost:back")]
         ]
@@ -230,7 +296,13 @@ async def process_content_photo(message: Message, state: FSMContext) -> None:
     
     await message.answer(
         "📷 <b>Фото получено!</b>\n\n"
-        "Хотите добавить промпт для генерации текста\n"
+        "Добавьте текст/идею или сгенерировать автоматически?",
+        parse_mode="HTML",
+        reply_markup=prompt_keyboard
+    )
+    
+    await state.set_state(NewPostStates.waiting_for_prompt)
+    logger.info(f"{mask_user_id(user_id, config.debug_mode)} uploaded photo for new post")
         "или бот создаст пост автоматически?",
         parse_mode="HTML",
         reply_markup=prompt_keyboard
@@ -251,8 +323,8 @@ async def process_content_text(message: Message, state: FSMContext) -> None:
     
     text = message.text.strip()
     
-    # Check for cancel
-    if text in ["❌ Отмена", "/cancel"]:
+    # Check for cancel or menu button
+    if text == "❌ Отмена" or is_menu_button(text):
         await state.clear()
         await message.answer(
             "Создание поста отменено.",
@@ -301,8 +373,8 @@ async def process_custom_prompt(message: Message, state: FSMContext) -> None:
     
     text = message.text.strip()
     
-    # Check for cancel
-    if text in ["❌ Отмена", "/cancel"]:
+    # Check for cancel or menu button
+    if text == "❌ Отмена" or is_menu_button(text):
         await state.clear()
         await message.answer(
             "Создание поста отменено.",
@@ -339,8 +411,8 @@ async def process_edit_text(message: Message, state: FSMContext) -> None:
     
     text = message.text.strip()
     
-    # Check for cancel
-    if text in ["❌ Отмена редактирования", "❌ Отмена", "/cancel"]:
+    # Check for cancel or menu button
+    if text in ["❌ Отмена редактирования", "❌ Отмена"] or is_menu_button(text):
         await state.clear()
         await message.answer(
             "Редактирование отменено.",
@@ -526,6 +598,226 @@ async def cancel_handler(message: Message, state: FSMContext) -> None:
             "Действие отменено.",
             reply_markup=main_menu_keyboard()
         )
+
+
+# ============================================
+# POLL, TIP, LIFEHACK HANDLERS
+# ============================================
+
+@router.message(PollStates.waiting_for_topic, F.text)
+async def process_poll_topic(message: Message, state: FSMContext) -> None:
+    """Process poll topic input."""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        await state.clear()
+        return
+    
+    text = message.text.strip()
+    
+    # Check for cancel or skip
+    if text == "❌ Отмена" or is_menu_button(text):
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_menu_keyboard())
+        return
+    
+    topic = None if text == "⏭ Пропустить" else text
+    
+    await state.clear()
+    await message.answer(
+        "⏳ <b>Генерирую опрос...</b>",
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard()
+    )
+    
+    try:
+        from services.ai_content import generate_poll_post
+        from services.image_generator import generate_image
+        
+        result = await generate_poll_post(topic)
+        
+        intro = result.get("intro_text", "")
+        question = result.get("question", "Что вы предпочитаете?")
+        options = result.get("options", ["Вариант 1", "Вариант 2"])
+        
+        post_text = f"{intro}\n\n📊 <b>{question}</b>"
+        
+        await message.answer(post_text, parse_mode="HTML")
+        await message.answer(
+            f"Варианты для опроса:\n" + "\n".join([f"• {opt}" for opt in options])
+        )
+        
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} generated poll")
+        
+    except Exception as e:
+        logger.error(f"Error generating poll: {e}")
+        await message.answer("❌ Ошибка генерации опроса.", reply_markup=main_menu_keyboard())
+
+
+@router.message(TipStates.waiting_for_topic, F.text)
+async def process_tip_topic(message: Message, state: FSMContext) -> None:
+    """Process cooking tip topic input."""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        await state.clear()
+        return
+    
+    text = message.text.strip()
+    
+    if text == "❌ Отмена" or is_menu_button(text):
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_menu_keyboard())
+        return
+    
+    topic = None if text == "⏭ Пропустить" else text
+    
+    await state.clear()
+    await message.answer(
+        "⏳ <b>Генерирую совет...</b>",
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard()
+    )
+    
+    try:
+        from services.ai_content import generate_tip_post
+        from services.image_generator import generate_image
+        
+        result = await generate_tip_post(topic)
+        post_text = result.get("text", "💡 Совет дня")
+        image_prompt = result.get("image_prompt", "cooking tip illustration")
+        
+        # Generate image
+        image_bytes = await generate_image(image_prompt)
+        
+        if image_bytes:
+            from aiogram.types import BufferedInputFile
+            photo = BufferedInputFile(image_bytes, filename="tip.jpg")
+            await message.answer_photo(photo=photo, caption=post_text, parse_mode="HTML")
+        else:
+            await message.answer(post_text, parse_mode="HTML")
+        
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} generated tip")
+        
+    except Exception as e:
+        logger.error(f"Error generating tip: {e}")
+        await message.answer("❌ Ошибка генерации совета.", reply_markup=main_menu_keyboard())
+
+
+@router.message(LifehackStates.waiting_for_topic, F.text)
+async def process_lifehack_topic(message: Message, state: FSMContext) -> None:
+    """Process kitchen lifehack topic input."""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        await state.clear()
+        return
+    
+    text = message.text.strip()
+    
+    if text == "❌ Отмена" or is_menu_button(text):
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_menu_keyboard())
+        return
+    
+    topic = None if text == "⏭ Пропустить" else text
+    
+    await state.clear()
+    await message.answer(
+        "⏳ <b>Генерирую лайфхак...</b>",
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard()
+    )
+    
+    try:
+        from services.ai_content import generate_lifehack_post
+        from services.image_generator import generate_image
+        
+        result = await generate_lifehack_post(topic)
+        post_text = result.get("text", "🔧 Лайфхак")
+        image_prompt = result.get("image_prompt", "kitchen lifehack illustration")
+        
+        # Generate image
+        image_bytes = await generate_image(image_prompt)
+        
+        if image_bytes:
+            from aiogram.types import BufferedInputFile
+            photo = BufferedInputFile(image_bytes, filename="lifehack.jpg")
+            await message.answer_photo(photo=photo, caption=post_text, parse_mode="HTML")
+        else:
+            await message.answer(post_text, parse_mode="HTML")
+        
+        logger.info(f"{mask_user_id(user_id, config.debug_mode)} generated lifehack")
+        
+    except Exception as e:
+        logger.error(f"Error generating lifehack: {e}")
+        await message.answer("❌ Ошибка генерации лайфхака.", reply_markup=main_menu_keyboard())
+
+
+# ============================================
+# RECIPE STATES HANDLERS
+# ============================================
+
+@router.message(RecipeStates.waiting_for_custom_idea, F.text)
+async def process_recipe_idea(message: Message, state: FSMContext) -> None:
+    """Process custom idea for recipe."""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        await state.clear()
+        return
+    
+    text = message.text.strip()
+    
+    if text == "❌ Отмена" or is_menu_button(text):
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_menu_keyboard())
+        return
+    
+    # Save idea and go back to confirmation
+    data = await state.get_data()
+    category = data.get("recipe_category", "pp")
+    
+    await state.update_data(recipe_idea=text)
+    await state.set_state(RecipeStates.confirming)
+    
+    from keyboards import recipe_confirm_keyboard
+    
+    await message.answer(
+        f"✅ <b>Идея сохранена!</b>\n\n"
+        f"<i>«{text[:100]}{'...' if len(text) > 100 else ''}»</i>\n\n"
+        f"Теперь можете сгенерировать рецепт:",
+        parse_mode="HTML",
+        reply_markup=recipe_confirm_keyboard(category)
+    )
+
+
+@router.message(RecipeStates.waiting_for_custom_photo, F.photo)
+async def process_recipe_photo(message: Message, state: FSMContext) -> None:
+    """Process custom photo for recipe."""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        await state.clear()
+        return
+    
+    # Get photo
+    photo = message.photo[-1]
+    
+    data = await state.get_data()
+    category = data.get("recipe_category", "pp")
+    
+    await state.update_data(recipe_photo_id=photo.file_id)
+    await state.set_state(RecipeStates.confirming)
+    
+    from keyboards import recipe_confirm_keyboard
+    
+    await message.answer(
+        "✅ <b>Фото сохранено!</b>\n\n"
+        "Теперь можете сгенерировать рецепт:",
+        parse_mode="HTML",
+        reply_markup=recipe_confirm_keyboard(category)
+    )
     else:
         await message.answer(
             "Нечего отменять.",
